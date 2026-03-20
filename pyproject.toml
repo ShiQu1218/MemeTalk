@@ -30,7 +30,8 @@ chroma = [
   "chromadb>=1.5.3,<2",
 ]
 ocr = [
-  "paddleocr>=2.9,<3",
+  "paddleocr==2.10.0",
+  "paddlepaddle==3.1.1",
 ]
 
 [project.scripts]

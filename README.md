@@ -16,6 +16,19 @@ pip install -e .[dev,openai,chroma]
 streamlit run streamlit_app.py
 ```
 
+若要使用 PaddleOCR backend，請使用專案虛擬環境並安裝固定 OCR 依賴：
+
+```bash
+python -m pip install -e .[ocr]
+```
+
+Windows CPU 目前驗證可用的組合是：
+
+- `paddleocr==2.10.0`
+- `paddlepaddle==3.1.1`
+
+若升到較新的 `paddlepaddle` 版本並出現 `OneDnnContext ... fused_conv2d`，請退回 `3.1.1`。
+
 打開瀏覽器 `http://localhost:8501`，透過左側選單操作：
 
 1. **⚙️ 設定** — 選擇 Provider、輸入 API Key、設定 Vector/OCR Backend
@@ -135,6 +148,17 @@ Provider 層是這個專案的核心抽象。每個能力都可替換：
 - `src/memetalk/providers/openai_provider.py`
 - `src/memetalk/providers/mock.py`
 - `src/memetalk/providers/paddleocr_provider.py`
+
+### 4.1 OCR Runtime 注意事項
+
+PaddleOCR 在 Windows CPU 環境下，目前以 `paddleocr==2.10.0` 搭配 `paddlepaddle==3.1.1` 驗證可正常運作。
+
+若看到以下錯誤：
+
+- `OneDnnContext does not have the input Filter`
+- `operator < fused_conv2d > error`
+
+這通常是 Paddle runtime 相容性問題，不是梗圖資料本身壞掉。請先確認你是用專案的 `.venv` 啟動，並將 `paddlepaddle` 降回 `3.1.1`。
 
 ### 5. LM Studio 相容邏輯
 

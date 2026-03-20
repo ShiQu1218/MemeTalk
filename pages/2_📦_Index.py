@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 import streamlit as st
@@ -40,7 +41,19 @@ _STEP_LABELS = {
     "error": "處理失敗",
 }
 
+# Initialize cancel event
+if "index_cancel_event" not in st.session_state:
+    st.session_state.index_cancel_event = threading.Event()
+
+
+def _request_stop() -> None:
+    st.session_state.index_cancel_event.set()
+
+
 if st.button("🚀 開始建立索引", type="primary", use_container_width=True):
+    # Reset cancel event for new run
+    st.session_state.index_cancel_event.clear()
+
     folder_path = Path(meme_folder)
     if not meme_folder.strip():
         st.warning("請先輸入梗圖資料夾路徑。")
@@ -54,10 +67,22 @@ if st.button("🚀 開始建立索引", type="primary", use_container_width=True
                 container = build_container(settings)
                 st.session_state["container"] = container
 
+            # Stop button — rendered before the blocking call so it's interactive
+            stop_placeholder = st.empty()
+            stop_placeholder.button(
+                "⏹️ 停止索引",
+                type="secondary",
+                use_container_width=True,
+                on_click=_request_stop,
+            )
+
             progress_bar = st.progress(0.0)
             status_text = st.empty()
-            detail_container = st.container()
             stats_placeholder = st.empty()
+            log_container = st.container()
+
+            cancel_event = st.session_state.index_cancel_event
+            _shown = {"warnings": 0, "errors": 0}
 
             def _on_progress(p: IndexProgress) -> None:
                 if p.total == 0:
@@ -78,19 +103,43 @@ if st.button("🚀 開始建立索引", type="primary", use_container_width=True
                     c3.metric("失敗", f"{p.failed} 張")
                     c4.metric("警告", f"{p.warnings} 筆")
 
+                # Stream new warnings / errors as they appear
+                with log_container:
+                    for w in p.warning_records[_shown["warnings"]:]:
+                        st.warning(f"⚠️ **{Path(w.file_path).name}** [{w.stage}] {w.warning}")
+                    _shown["warnings"] = len(p.warning_records)
+
+                    for e in p.error_records[_shown["errors"]:]:
+                        st.error(f"❌ **{Path(e.file_path).name}** {e.error}")
+                    _shown["errors"] = len(p.error_records)
+
             summary = container.indexing_service.build_index(
-                folder_path, reindex=reindex, on_progress=_on_progress,
+                folder_path,
+                reindex=reindex,
+                on_progress=_on_progress,
+                cancel_check=cancel_event.is_set,
             )
 
-            progress_bar.progress(1.0, text="索引完成！")
-            status_text.empty()
+            # Remove stop button after completion
+            stop_placeholder.empty()
 
-            if summary.failed_count:
-                st.warning(f"索引完成，但有 {summary.failed_count} 張失敗。")
-            elif summary.warning_count:
-                st.warning(f"索引完成，但有 {summary.warning_count} 筆降級警告。")
+            if summary.status == "cancelled":
+                progress_bar.progress(
+                    summary.processed_count / max(summary.processed_count + 1, 1),
+                    text="索引已中斷",
+                )
+                status_text.empty()
+                st.warning("索引已由使用者中斷。已完成的索引已儲存。")
             else:
-                st.success("索引完成！")
+                progress_bar.progress(1.0, text="索引完成！")
+                status_text.empty()
+
+                if summary.failed_count:
+                    st.warning(f"索引完成，但有 {summary.failed_count} 張失敗。")
+                elif summary.warning_count:
+                    st.warning(f"索引完成，但有 {summary.warning_count} 筆降級警告。")
+                else:
+                    st.success("索引完成！")
 
             col1, col2, col3, col4, col5 = st.columns(5)
             col1.metric("處理", f"{summary.processed_count} 張")
@@ -110,4 +159,8 @@ if st.button("🚀 開始建立索引", type="primary", use_container_width=True
                         st.text(f"⚠️ {warning.file_path}")
                         st.code(f"[{warning.stage}] {warning.warning}")
         except Exception as e:
+            # Re-raise Streamlit internal exceptions (RerunException, StopException)
+            from streamlit.runtime.scriptrunner import RerunException, StopException
+            if isinstance(e, (RerunException, StopException)):
+                raise
             st.error(f"索引過程發生錯誤：{e}")

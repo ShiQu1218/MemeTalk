@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from uuid import uuid4
 
@@ -36,6 +36,8 @@ class IndexProgress:
     skipped: int = 0
     failed: int = 0
     warnings: int = 0
+    error_records: list[IndexErrorRecord] = field(default_factory=list)
+    warning_records: list[IndexWarningRecord] = field(default_factory=list)
 
 
 ProgressCallback = Callable[[IndexProgress], None]
@@ -65,6 +67,7 @@ class IndexingService:
         source_dir: Path,
         reindex: bool = False,
         on_progress: ProgressCallback | None = None,
+        cancel_check: Callable[[], bool] | None = None,
     ) -> IndexRunSummary:
         run = IndexRunSummary(
             run_id=str(uuid4()),
@@ -89,12 +92,20 @@ class IndexingService:
                         skipped=run.skipped_count,
                         failed=run.failed_count,
                         warnings=run.warning_count,
+                        error_records=run.errors,
+                        warning_records=run.warnings,
                     )
                 )
 
         _report("", "scan")
 
         for image_path in image_paths:
+            if cancel_check is not None and cancel_check():
+                run.status = "cancelled"
+                run.completed_at = utc_now()
+                self.repository.save_index_run(run)
+                return run
+
             run.processed_count += 1
             name = image_path.name
 

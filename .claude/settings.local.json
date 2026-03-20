@@ -6,7 +6,17 @@
       "Bash(pip index:*)",
       "Bash(ls:*)",
       "Bash(grep:*)",
-      "Bash(pip install:*)"
+      "Bash(pip install:*)",
+      "Bash(where:*)",
+      "Bash(py:*)",
+      "Bash(PYLAUNCHER_ALLOW_INSTALL=1 py:*)",
+      "Bash(winget install:*)",
+      "Bash(rm:*)",
+      "Bash(taskkill:*)",
+      "Bash(source:*)",
+      "Bash(.venv/Scripts/python.exe:*)",
+      "Bash(nvidia-smi:*)",
+      "WebSearch"
     ]
   }
 }
