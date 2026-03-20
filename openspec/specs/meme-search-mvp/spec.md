@@ -52,6 +52,7 @@
 
 ### REQ-MVP-007 Streamlit Demo UI
 - The repository MUST include a Streamlit app for the MVP demo.
+- The demo UI MUST start without requiring a `secrets.toml` file and MUST fall back to a default local API base URL when secrets are absent.
 - The demo UI MUST provide:
   - one natural-language query input
   - a submit action

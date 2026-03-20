@@ -127,6 +127,151 @@ uvicorn memetalk.api.main:app --reload
 streamlit run streamlit_app.py
 ```
 
+## 實際操作流程
+
+下面是一套從零開始的實際使用順序，適合第一次把專案跑起來。
+
+### 1. 安裝依賴
+
+```bash
+pip install -e .[dev]
+pip install -e .[openai]
+pip install -e .[chroma]
+```
+
+如果你要用 OCR，也要安裝：
+
+```bash
+pip install -e .[ocr]
+```
+
+### 2. 設定 provider
+
+如果你要用 LM Studio，可先在 PowerShell 設定：
+
+```powershell
+$env:MEMETALK_PROVIDER_BACKEND="lmstudio"
+$env:MEMETALK_LMSTUDIO_BASE_URL="http://127.0.0.1:1234/v1"
+$env:MEMETALK_LMSTUDIO_CHAT_MODEL="your-chat-model-id"
+$env:MEMETALK_LMSTUDIO_VISION_MODEL="your-vision-model-id"
+$env:MEMETALK_LMSTUDIO_EMBEDDING_MODEL="your-embedding-model-id"
+```
+
+如果你只是要先驗證流程是否正常，可改用 mock：
+
+```powershell
+$env:MEMETALK_PROVIDER_BACKEND="mock"
+$env:MEMETALK_VECTOR_BACKEND="memory"
+$env:MEMETALK_OCR_BACKEND="mock"
+```
+
+### 3. 準備圖片資料夾
+
+把要索引的梗圖放在同一個資料夾底下，例如：
+
+```text
+D:\MemeData
+```
+
+支援的圖片格式：
+
+- `.jpg`
+- `.jpeg`
+- `.png`
+- `.webp`
+
+### 4. 建立索引
+
+第一次建立索引：
+
+```powershell
+memetalk index build --source D:\MemeData
+```
+
+如果你要整批重建資料，使用：
+
+```powershell
+memetalk index build --source D:\MemeData --reindex
+```
+
+成功後會看到一段 JSON 結果，裡面包含：
+
+- `processed_count`
+- `indexed_count`
+- `skipped_count`
+- `failed_count`
+- `errors`
+
+### 5. 啟動 API
+
+```bash
+uvicorn memetalk.api.main:app --reload
+```
+
+正常啟動後，API 預設會在：
+
+```text
+http://127.0.0.1:8000
+```
+
+你可以先用健康檢查確認：
+
+```text
+GET http://127.0.0.1:8000/api/v1/health
+```
+
+### 6. 啟動 Streamlit Demo
+
+開另一個 terminal 執行：
+
+```bash
+streamlit run streamlit_app.py
+```
+
+如果沒有 `.streamlit/secrets.toml` 也沒關係，程式會自動退回本機 API 位址。
+
+啟動後通常可在瀏覽器打開：
+
+```text
+http://localhost:8501
+```
+
+### 7. 實際搜尋
+
+在 Demo 頁面輸入一句自然語言，例如：
+
+- `朋友說快到了但其實根本還沒出門`
+- `主管又突然改需求`
+- `今天上班好厭世`
+
+送出後，畫面會顯示：
+
+- 查詢分析結果
+- top-3 梗圖推薦
+- 每張圖的推薦理由
+- 情緒標籤與意圖標籤
+
+### 8. 直接打 API 測試
+
+如果你不想先開 Streamlit，也可以直接測 API：
+
+```powershell
+curl -X POST http://127.0.0.1:8000/api/v1/search `
+  -H "Content-Type: application/json" `
+  -d "{\"query\":\"主管又突然改需求\",\"top_n\":3,\"candidate_k\":8}"
+```
+
+### 9. 常見使用順序總結
+
+最常見的操作順序就是：
+
+1. 安裝依賴
+2. 設定 provider
+3. `memetalk index build --source ...`
+4. `uvicorn memetalk.api.main:app --reload`
+5. `streamlit run streamlit_app.py`
+6. 打開 `http://localhost:8501` 開始搜尋
+
 ## 環境變數
 
 系統會讀取以下環境變數：
@@ -197,6 +342,8 @@ Demo 會提供：
 - top-3 推薦卡片
 - 推薦理由
 - 情緒與意圖標籤顯示
+
+如果沒有 `.streamlit/secrets.toml`，Demo 會自動退回 `MEMETALK_API_BASE_URL`，若環境變數也沒有設定，則使用 `http://127.0.0.1:8000`。
 
 ## OpenSpec
 

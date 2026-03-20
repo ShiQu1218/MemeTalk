@@ -2,9 +2,19 @@ from __future__ import annotations
 
 import httpx
 import streamlit as st
+from streamlit.errors import StreamlitSecretNotFoundError
+
+from memetalk.app.ui_config import resolve_api_base_url
 
 
-API_BASE_URL = st.secrets.get("api_base_url", "http://127.0.0.1:8000").rstrip("/")
+def _load_streamlit_secrets():
+    try:
+        return st.secrets
+    except StreamlitSecretNotFoundError:
+        return None
+
+
+API_BASE_URL = resolve_api_base_url(_load_streamlit_secrets())
 
 
 st.set_page_config(page_title="MemeTalk Demo", layout="wide")

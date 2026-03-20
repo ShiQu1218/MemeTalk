@@ -1,124 +1,16 @@
-終端輸出:
-(.venv) PS D:\Develop\MemeTalk> memetalk index build --source D:\Develop\MemeTalk\Meme_folder                          
-{
-  "run_id": "cf7a32f3-aa89-4a0e-bd27-7e03c66078f6",
-  "source_dir": "D:\\Develop\\MemeTalk\\Meme_folder",
-  "reindex": false,
-  "status": "completed_with_errors",
-  "processed_count": 16,
-  "indexed_count": 0,
-  "skipped_count": 0,
-  "failed_count": 16,
-  "errors": [
-    {
-      "file_path": "D:\\Develop\\MemeTalk\\Meme_folder\\0c6e683ae5cbf60972806d3dc2741a70.JPG",
-      "error": "LM Studio reports no embedding model is loaded. Load an embedding-capable model in LM Studio and set MEMETALK_LMSTUDIO_EMBEDDING_MODEL to that model id."
-    },
-    {
-      "file_path": "D:\\Develop\\MemeTalk\\Meme_folder\\1_1111.jpg",
-      "error": "LM Studio reports no embedding model is loaded. Load an embedding-capable model in LM Studio and set MEMETALK_LMSTUDIO_EMBEDDING_MODEL to that model id."
-    },
-    {
-      "file_path": "D:\\Develop\\MemeTalk\\Meme_folder\\1_1142.jpg",
-      "error": "LM Studio reports no embedding model is loaded. Load an embedding-capable model in LM Studio and set MEMETALK_LMSTUDIO_EMBEDDING_MODEL to that model id."
-    },
-    {
-      "file_path": "D:\\Develop\\MemeTalk\\Meme_folder\\2_1103.jpg",
-      "error": "LM Studio reports no embedding model is loaded. Load an embedding-capable model in LM Studio and set MEMETALK_LMSTUDIO_EMBEDDING_MODEL to that model id."
-    },
-    {
-      "file_path": "D:\\Develop\\MemeTalk\\Meme_folder\\2_1506.jpg",
-      "error": "Expecting ',' delimiter: line 24 column 3 (char 482)"
-    },
-    {
-      "file_path": "D:\\Develop\\MemeTalk\\Meme_folder\\2_640.jpg",
-      "error": "LM Studio reports no embedding model is loaded. Load an embedding-capable model in LM Studio and set MEMETALK_LMSTUDIO_EMBEDDING_MODEL to that model id."
-    },
-    {
-      "file_path": "D:\\Develop\\MemeTalk\\Meme_folder\\2_903.jpg",
-      "error": "LM Studio reports no embedding model is loaded. Load an embedding-capable model in LM Studio and set MEMETALK_LMSTUDIO_EMBEDDING_MODEL to that model id."
-    },
-    {
-      "file_path": "D:\\Develop\\MemeTalk\\Meme_folder\\2e4245605c18ff516a041657c2b83221.JPG",
-      "error": "LM Studio reports no embedding model is loaded. Load an embedding-capable model in LM Studio and set MEMETALK_LMSTUDIO_EMBEDDING_MODEL to that model id."
-    },
-    {
-      "file_path": "D:\\Develop\\MemeTalk\\Meme_folder\\2OuAo4R.jpg",
-      "error": "LM Studio reports no embedding model is loaded. Load an embedding-capable model in LM Studio and set MEMETALK_LMSTUDIO_EMBEDDING_MODEL to that model id."
-    },
-    {
-      "file_path": "D:\\Develop\\MemeTalk\\Meme_folder\\3e30a933f6b37efc21aee9f4f18a424c.JPG",
-      "error": "LM Studio reports no embedding model is loaded. Load an embedding-capable model in LM Studio and set MEMETALK_LMSTUDIO_EMBEDDING_MODEL to that model id."
-    },
-    {
-      "file_path": "D:\\Develop\\MemeTalk\\Meme_folder\\3f44acbba675fb2717452e4f157f945d.JPG",
-      "error": "LM Studio reports no embedding model is loaded. Load an embedding-capable model in LM Studio and set MEMETALK_LMSTUDIO_EMBEDDING_MODEL to that model id."
-    },
-    {
-      "file_path": "D:\\Develop\\MemeTalk\\Meme_folder\\4_1358.jpg",
-      "error": "LM Studio reports no embedding model is loaded. Load an embedding-capable model in LM Studio and set MEMETALK_LMSTUDIO_EMBEDDING_MODEL to that model id."
-    },
-    {
-      "file_path": "D:\\Develop\\MemeTalk\\Meme_folder\\4bddcc769af5a5034c477c958a11aba7_332347.JPG",
-      "error": "LM Studio reports no embedding model is loaded. Load an embedding-capable model in LM Studio and set MEMETALK_LMSTUDIO_EMBEDDING_MODEL to that model id."
-    },
-    {
-      "file_path": "D:\\Develop\\MemeTalk\\Meme_folder\\4c968154cf34a4be2ca881cb2e39f6bc.JPG",
-      "error": "LM Studio reports no embedding model is loaded. Load an embedding-capable model in LM Studio and set MEMETALK_LMSTUDIO_EMBEDDING_MODEL to that model id."
-    },
-    {
-      "file_path": "D:\\Develop\\MemeTalk\\Meme_folder\\5a678a9c4f4f4601db05d30a3fa1abe7.png",
-      "error": "LM Studio reports no embedding model is loaded. Load an embedding-capable model in LM Studio and set MEMETALK_LMSTUDIO_EMBEDDING_MODEL to that model id."
-    },
-    {
-      "file_path": "D:\\Develop\\MemeTalk\\Meme_folder\\5e86520cf310e2d78fb3f5fa09409f59.JPG",
-      "error": "LM Studio reports no embedding model is loaded. Load an embedding-capable model in LM Studio and set MEMETALK_LMSTUDIO_EMBEDDING_MODEL to that model id."
-    }
-  ],
-  "started_at": "2026-03-20T07:10:50.520848Z",
-  "completed_at": "2026-03-20T07:12:04.905368Z"
+streamlit.errors.StreamlitSecretNotFoundError: No secrets found. Valid paths for a secrets.toml file or secret directories are: C:\Users\wluis\.streamlit\secrets.toml, D:\Develop\MemeTalk\.streamlit\secrets.toml
 
-
-
-
-LM Studio log(省略部分):
-2026-03-20 15:12:04  [INFO]
- [qwen3.5-9b-uncensored-hauhaucs-aggressive@q4_k_m] Prompt processing progress: 100.0%
-2026-03-20 15:12:04  [INFO]
- [qwen3.5-9b-uncensored-hauhaucs-aggressive@q4_k_m] Model generated tool calls:  []
-2026-03-20 15:12:04  [INFO]
- [qwen3.5-9b-uncensored-hauhaucs-aggressive@q4_k_m] Generated prediction:  {
-  "id": "chatcmpl-klu52ol5ymfoc2u8rh1jg",
-  "object": "chat.completion",
-  "created": 1773990721,
-  "model": "qwen3.5-9b-uncensored-hauhaucs-aggressive@q4_k_m",
-  "choices": [
-    {
-      "index": 0,
-      "message": {
-        "role": "assistant",
-        "content": "{\n  \"template_name\": \"Patrick Star - The Suit\",\n  \"scene_description\": \"派大星 (Patrick Star) 穿著正式的黑色禮服與紅色領結，頭戴高頂禮帽。他張大嘴巴露出興奮的笑容，雙手舉起，呈現一種誇張的驚喜或急切的姿態。背景為藍綠色的海底場景，帶有模糊的水母輪廓。右上角有「東森幼幼」台標，下方有中文字幕「等一等, 不可以」。\",\n  \"meme_usage\": \"此模板常用於表達「突然發現」、「驚覺」、「臨時反悔」或「興奮到失控」的情境。常見搭配情境包括：看到優惠、被發現秘密、決定改變主意、或是對某事產生強烈興趣時的反應。字幕「等一等, 不可以」強化了角色在情緒高點時試圖阻止或延遲的戲劇性張力。\",\n  \"emotion_tags\": [\n    \"興奮\",\n    \"驚喜\",\n    \"急切\",\n    \"誇張\",\n    \"戲劇化\"\n  ],\n  \"intent_tags\": [\n    \"表達突發情緒反應\",\n    \"強調情境轉折\",\n    \"增加幽默感\",\n    \"模擬內心獨白或即時反應\"\n  ],\n  \"style_tags\": [\n    \"卡通風格\",\n    \"動畫截圖\",\n    \"經典台詞式表情\",\n    \"高飽和色彩\",\n    \"簡潔線條\"\n  ]\n}",
-        "tool_calls": []
-      },
-      "logprobs": null,
-      "finish_reason": "stop"
-    }
-  ],
-  "usage": {
-    "prompt_tokens": 605,
-    "completion_tokens": 326,
-    "total_tokens": 931
-  },
-  "stats": {},
-  "system_fingerprint": "qwen3.5-9b-uncensored-hauhaucs-aggressive@q4_k_m"
-}
-2026-03-20 15:12:04 [DEBUG]
- Received request: POST to /v1/embeddings with body  {
-  "input": [
-    "模板資訊：Patrick Star - The Suit\n畫面描述：派大星 (Patrick Sta... <Truncated in logs> ...加幽默感、模擬內心獨白或即時反應\n風格標籤：卡通風格、動畫截圖、經典台詞式表情、高飽和色彩、簡潔線條"
-  ],
-  "model": "qwen3.5-9b-uncensored-hauhaucs-aggressive@q6_k",
-  "encoding_format": "base64"
-}
-2026-03-20 15:12:04 [ERROR]
- No models loaded. Please load a model in the developer page or use the 'lms load' command.
+File "D:\Develop\MemeTalk\.venv\Lib\site-packages\streamlit\runtime\scriptrunner\exec_code.py", line 129, in exec_func_with_error_handling
+    result = func()
+File "D:\Develop\MemeTalk\.venv\Lib\site-packages\streamlit\runtime\scriptrunner\script_runner.py", line 689, in code_to_exec
+    exec(code, module.__dict__)  # noqa: S102
+    ~~~~^^^^^^^^^^^^^^^^^^^^^^^
+File "D:\Develop\MemeTalk\streamlit_app.py", line 7, in <module>
+    API_BASE_URL = st.secrets.get("api_base_url", "http://127.0.0.1:8000").rstrip("/")
+                   ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "<frozen _collections_abc>", line 795, in get
+File "D:\Develop\MemeTalk\.venv\Lib\site-packages\streamlit\runtime\secrets.py", line 473, in __getitem__
+    value = self._parse()[key]
+            ~~~~~~~~~~~^^
+File "D:\Develop\MemeTalk\.venv\Lib\site-packages\streamlit\runtime\secrets.py", line 375, in _parse
+    raise StreamlitSecretNotFoundError(error_msg)
