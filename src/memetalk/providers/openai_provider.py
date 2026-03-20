@@ -13,6 +13,8 @@ from memetalk.config import AppSettings
 from memetalk.core.models import MemeMetadata, OCRExtraction, QueryAnalysis, RerankCandidate, RerankResult
 from memetalk.core.providers import EmbeddingProvider, MetadataProvider, QueryAnalyzer, Reranker
 
+JSON_COMPLETION_MAX_ATTEMPTS = 3
+
 
 def _build_image_data_url(image_path: Path, provider_label: str) -> str:
     suffix = image_path.suffix.lower()
@@ -107,23 +109,69 @@ class _OpenAICompatibleBase:
             "MEMETALK_OPENAI_API_KEY is required for the OpenAI provider unless a compatible base URL is configured."
         )
 
-    def _json_completion(self, prompt: str, user_content: str | list[dict[str, Any]], model: str) -> dict[str, Any]:
-        response = self._client().chat.completions.create(
-            model=model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        f"{prompt}"
-                        "只回傳單一 JSON 物件。"
-                        "不要使用 Markdown、不要加前言、不要加結尾說明。"
-                    ),
-                },
-                {"role": "user", "content": user_content},
-            ],
+    def _translate_provider_error(self, exc: Exception, capability: str) -> Exception:
+        message = str(exc)
+        if self.profile.label != "lmstudio":
+            return exc
+        if "No models loaded" not in message:
+            return exc
+        if capability == "embedding":
+            return RuntimeError(
+                "LM Studio reports no embedding model is loaded. "
+                "Load an embedding-capable model in LM Studio and set MEMETALK_LMSTUDIO_EMBEDDING_MODEL to that model id."
+            )
+        if capability == "vision":
+            return RuntimeError(
+                "LM Studio reports no vision/chat model is loaded. "
+                "Load a vision-capable chat model in LM Studio and set MEMETALK_LMSTUDIO_VISION_MODEL to that model id."
+            )
+        return RuntimeError(
+            "LM Studio reports no chat model is loaded. "
+            "Load a chat-capable model in LM Studio and set MEMETALK_LMSTUDIO_CHAT_MODEL to that model id."
         )
-        payload = response.choices[0].message.content or ""
-        return _extract_json_object(payload)
+
+    def _build_json_system_prompt(self, prompt: str, attempt: int) -> str:
+        retry_note = ""
+        if attempt:
+            retry_note = (
+                "上一次輸出的 JSON 格式錯誤。"
+                "這次所有欄位與陣列元素之間都必須使用半形逗號，"
+                "並確保輸出可以被 Python json.loads 直接解析。"
+            )
+        return (
+            f"{prompt}"
+            f"{retry_note}"
+            "只回傳單一 JSON 物件。"
+            "不要使用 Markdown、不要加前言、不要加結尾說明。"
+        )
+
+    def _json_completion(self, prompt: str, user_content: str | list[dict[str, Any]], model: str) -> dict[str, Any]:
+        capability = "vision" if isinstance(user_content, list) else "chat"
+        last_error: Exception | None = None
+        for attempt in range(JSON_COMPLETION_MAX_ATTEMPTS):
+            try:
+                response = self._client().chat.completions.create(
+                    model=model,
+                    temperature=0,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": self._build_json_system_prompt(prompt, attempt),
+                        },
+                        {"role": "user", "content": user_content},
+                    ],
+                )
+            except Exception as exc:
+                raise self._translate_provider_error(exc, capability) from exc
+            payload = response.choices[0].message.content or ""
+            try:
+                return _extract_json_object(payload)
+            except (json.JSONDecodeError, ValueError) as exc:
+                last_error = exc
+                continue
+        raise RuntimeError(
+            f"Provider returned malformed JSON after {JSON_COMPLETION_MAX_ATTEMPTS} attempts: {last_error}"
+        ) from last_error
 
 
 class CompatibleEmbeddingProvider(_OpenAICompatibleBase, EmbeddingProvider):
@@ -132,7 +180,10 @@ class CompatibleEmbeddingProvider(_OpenAICompatibleBase, EmbeddingProvider):
         self.name = f"{profile.label}-embedding"
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
-        response = self._client().embeddings.create(model=self.profile.embedding_model, input=texts)
+        try:
+            response = self._client().embeddings.create(model=self.profile.embedding_model, input=texts)
+        except Exception as exc:
+            raise self._translate_provider_error(exc, "embedding") from exc
         return [item.embedding for item in response.data]
 
 

@@ -69,6 +69,8 @@
 - OpenAI MUST be the default cloud provider configuration.
 - The OpenAI-backed provider path MUST support OpenAI-compatible chat, vision, and embedding endpoints through configurable base URL and model settings.
 - The repository MUST provide a documented local provider configuration for LM Studio without changing application code.
+- OpenAI-compatible local provider failures MUST surface actionable guidance when required chat, vision, or embedding models are not available.
+- OpenAI-compatible structured outputs MUST retry or repair recoverable malformed JSON before failing a request.
 - The codebase MUST include a local/mock-friendly provider path so tests can run without external services.
 
 ## Acceptance
