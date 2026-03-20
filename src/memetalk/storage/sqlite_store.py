@@ -13,6 +13,10 @@ from memetalk.core.models import (
 )
 from memetalk.core.retrieval import build_keyword_text, lexical_overlap_score
 
+_FTS_TABLE_NAME = "meme_assets_fts"
+_FTS_PREFILTER_MULTIPLIER = 8
+_FTS_PREFILTER_MIN = 24
+
 _MEME_ASSET_COLUMNS = {
     "image_id": "TEXT PRIMARY KEY",
     "file_path": "TEXT NOT NULL",
@@ -57,6 +61,7 @@ _INDEX_RUN_COLUMNS = {
 class SQLiteMemeRepository:
     def __init__(self, sqlite_path: Path) -> None:
         self.sqlite_path = sqlite_path
+        self._fts_enabled = False
 
     def initialize(self) -> None:
         with self._connect() as conn:
@@ -112,9 +117,11 @@ class SQLiteMemeRepository:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_meme_assets_template_canonical_id ON meme_assets(template_canonical_id)"
             )
+            self._initialize_fts(conn)
 
     def upsert_asset(self, asset: MemeAsset) -> None:
         keyword_text = build_keyword_text(asset.metadata)
+        template_text = self._build_template_text_from_metadata(asset.metadata)
         with self._connect() as conn:
             conn.execute(
                 """
@@ -169,6 +176,13 @@ class SQLiteMemeRepository:
                     asset.updated_at.isoformat(),
                 ),
             )
+            self._upsert_fts_row(
+                conn,
+                image_id=asset.image_id,
+                keyword_text=keyword_text,
+                template_text=template_text,
+                ocr_text=asset.metadata.ocr_text,
+            )
 
     def get_asset_by_sha256(self, file_sha256: str) -> MemeAsset | None:
         row = self._fetch_one("SELECT * FROM meme_assets WHERE file_sha256 = ?", (file_sha256,))
@@ -189,25 +203,11 @@ class SQLiteMemeRepository:
     def search_keyword_candidates(self, query_terms: list[str], template_hints: list[str], top_k: int) -> list[SearchMatch]:
         if not query_terms and not template_hints:
             return []
-        with self._connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT image_id, keyword_text, template_name, template_canonical_id, template_aliases, ocr_text
-                FROM meme_assets
-                """
-            ).fetchall()
+        rows = self._search_keyword_rows(query_terms, template_hints, top_k)
         matches: list[SearchMatch] = []
         for row in rows:
             keyword_score = lexical_overlap_score(query_terms, row["keyword_text"] or "")
-            template_blob = " ".join(
-                part
-                for part in [
-                    row["template_name"] or "",
-                    row["template_canonical_id"] or "",
-                    " ".join(json.loads(row["template_aliases"] or "[]")),
-                ]
-                if part
-            )
+            template_blob = self._build_template_blob(row)
             template_score = lexical_overlap_score(template_hints, template_blob)
             ocr_score = lexical_overlap_score(query_terms, row["ocr_text"] or "")
             score = max(keyword_score, template_score) + (ocr_score * 0.25)
@@ -286,6 +286,144 @@ class SQLiteMemeRepository:
             if column_name in existing:
                 continue
             conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}")
+
+    def _initialize_fts(self, conn: sqlite3.Connection) -> None:
+        try:
+            conn.execute(
+                f"""
+                CREATE VIRTUAL TABLE IF NOT EXISTS {_FTS_TABLE_NAME}
+                USING fts5(
+                    image_id UNINDEXED,
+                    keyword_text,
+                    template_text,
+                    ocr_text
+                )
+                """
+            )
+        except sqlite3.OperationalError:
+            self._fts_enabled = False
+            return
+        self._fts_enabled = True
+        asset_count = conn.execute("SELECT COUNT(*) FROM meme_assets").fetchone()[0]
+        fts_count = conn.execute(f"SELECT COUNT(*) FROM {_FTS_TABLE_NAME}").fetchone()[0]
+        if asset_count != fts_count:
+            self._rebuild_fts_index(conn)
+
+    def _rebuild_fts_index(self, conn: sqlite3.Connection) -> None:
+        conn.execute(f"DELETE FROM {_FTS_TABLE_NAME}")
+        rows = conn.execute(
+            """
+            SELECT image_id, keyword_text, template_name, template_canonical_id, template_aliases, ocr_text
+            FROM meme_assets
+            """
+        ).fetchall()
+        if not rows:
+            return
+        conn.executemany(
+            f"""
+            INSERT INTO {_FTS_TABLE_NAME} (image_id, keyword_text, template_text, ocr_text)
+            VALUES (?, ?, ?, ?)
+            """,
+            [
+                (
+                    row["image_id"],
+                    row["keyword_text"] or "",
+                    self._build_template_blob(row),
+                    row["ocr_text"] or "",
+                )
+                for row in rows
+            ],
+        )
+
+    def _upsert_fts_row(
+        self,
+        conn: sqlite3.Connection,
+        image_id: str,
+        keyword_text: str,
+        template_text: str,
+        ocr_text: str,
+    ) -> None:
+        if not self._fts_enabled:
+            return
+        conn.execute(f"DELETE FROM {_FTS_TABLE_NAME} WHERE image_id = ?", (image_id,))
+        conn.execute(
+            f"""
+            INSERT INTO {_FTS_TABLE_NAME} (image_id, keyword_text, template_text, ocr_text)
+            VALUES (?, ?, ?, ?)
+            """,
+            (image_id, keyword_text, template_text, ocr_text),
+        )
+
+    def _search_keyword_rows(self, query_terms: list[str], template_hints: list[str], top_k: int) -> list[sqlite3.Row]:
+        if self._fts_enabled:
+            fts_rows = self._search_keyword_rows_via_fts(query_terms, template_hints, top_k)
+            if fts_rows:
+                return fts_rows
+        with self._connect() as conn:
+            return conn.execute(
+                """
+                SELECT image_id, keyword_text, template_name, template_canonical_id, template_aliases, ocr_text
+                FROM meme_assets
+                """
+            ).fetchall()
+
+    def _search_keyword_rows_via_fts(
+        self,
+        query_terms: list[str],
+        template_hints: list[str],
+        top_k: int,
+    ) -> list[sqlite3.Row]:
+        match_query = self._build_fts_match_query(query_terms, template_hints)
+        if not match_query:
+            return []
+        with self._connect() as conn:
+            try:
+                return conn.execute(
+                    f"""
+                    SELECT image_id, keyword_text, template_text, ocr_text
+                    FROM {_FTS_TABLE_NAME}
+                    WHERE {_FTS_TABLE_NAME} MATCH ?
+                    ORDER BY bm25({_FTS_TABLE_NAME}, 1.0, 2.5, 2.0)
+                    LIMIT ?
+                    """,
+                    (match_query, max(top_k * _FTS_PREFILTER_MULTIPLIER, _FTS_PREFILTER_MIN)),
+                ).fetchall()
+            except sqlite3.OperationalError:
+                return []
+
+    def _build_fts_match_query(self, query_terms: list[str], template_hints: list[str]) -> str:
+        clauses: list[str] = []
+        for value in [*template_hints, *query_terms]:
+            normalized = " ".join(str(value or "").replace('"', " ").split())
+            if not normalized:
+                continue
+            clauses.append(f'"{normalized}"')
+        return " OR ".join(dict.fromkeys(clauses))
+
+    def _build_template_text_from_metadata(self, metadata: MemeMetadata) -> str:
+        return " ".join(
+            part
+            for part in [
+                metadata.template_name or "",
+                metadata.template_canonical_id,
+                " ".join(metadata.template_aliases),
+                metadata.template_family,
+            ]
+            if part
+        )
+
+    def _build_template_blob(self, row: sqlite3.Row) -> str:
+        if "template_text" in row.keys() and row["template_text"]:
+            return row["template_text"]
+        return " ".join(
+            part
+            for part in [
+                row["template_name"] or "",
+                row["template_canonical_id"] or "",
+                " ".join(json.loads(row["template_aliases"] or "[]")),
+            ]
+            if part
+        )
 
     def _row_to_asset(self, row: sqlite3.Row) -> MemeAsset:
         metadata = MemeMetadata(
