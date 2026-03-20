@@ -9,7 +9,9 @@ from memetalk.app.ui_config import resolve_api_base_url
 
 def _load_streamlit_secrets():
     try:
-        return st.secrets
+        secrets = st.secrets
+        len(secrets)  # force parsing; st.secrets is lazy
+        return secrets
     except StreamlitSecretNotFoundError:
         return None
 

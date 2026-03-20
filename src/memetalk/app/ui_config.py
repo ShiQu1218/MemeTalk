@@ -8,7 +8,7 @@ DEFAULT_API_BASE_URL = "http://127.0.0.1:8000"
 
 
 def resolve_api_base_url(secrets: Mapping[str, str] | None = None) -> str:
-    if secrets:
+    if secrets is not None:
         value = secrets.get("api_base_url")
         if value:
             return value.rstrip("/")

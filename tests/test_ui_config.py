@@ -23,3 +23,15 @@ def test_resolve_api_base_url_falls_back_to_default(monkeypatch) -> None:
     value = resolve_api_base_url(None)
 
     assert value == DEFAULT_API_BASE_URL
+
+
+def test_resolve_api_base_url_does_not_trigger_truthiness_on_secrets(monkeypatch) -> None:
+    class SecretsLike(dict):
+        def __len__(self):
+            raise AssertionError("truthiness check should not be used")
+
+    monkeypatch.delenv("MEMETALK_API_BASE_URL", raising=False)
+
+    value = resolve_api_base_url(SecretsLike())
+
+    assert value == DEFAULT_API_BASE_URL

@@ -59,7 +59,14 @@ class ChromaVectorStore(VectorStore):
                 import chromadb
             except ImportError as exc:
                 raise RuntimeError("The chroma extra is not installed. Install with `pip install -e .[chroma]`.") from exc
-            client = chromadb.PersistentClient(path=str(self.persist_directory))
+            try:
+                client = chromadb.PersistentClient(path=str(self.persist_directory))
+            except (AttributeError, ValueError) as exc:
+                raise RuntimeError(
+                    f"ChromaDB failed to initialise (chromadb {chromadb.__version__}, "
+                    f"Python {__import__('sys').version.split()[0]}). "
+                    "This is a known issue with Python 3.14 — consider using Python ≤3.13."
+                ) from exc
             self._collection = client.get_or_create_collection(name=self.collection_name, metadata={"hnsw:space": "cosine"})
         return self._collection
 

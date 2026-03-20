@@ -1,16 +1,228 @@
-streamlit.errors.StreamlitSecretNotFoundError: No secrets found. Valid paths for a secrets.toml file or secret directories are: C:\Users\wluis\.streamlit\secrets.toml, D:\Develop\MemeTalk\.streamlit\secrets.toml
+streamlist:
+httpx.HTTPStatusError: Server error '500 Internal Server Error' for url 'http://127.0.0.1:8000/api/v1/search'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/500
 
 File "D:\Develop\MemeTalk\.venv\Lib\site-packages\streamlit\runtime\scriptrunner\exec_code.py", line 129, in exec_func_with_error_handling
     result = func()
 File "D:\Develop\MemeTalk\.venv\Lib\site-packages\streamlit\runtime\scriptrunner\script_runner.py", line 689, in code_to_exec
     exec(code, module.__dict__)  # noqa: S102
     ~~~~^^^^^^^^^^^^^^^^^^^^^^^
-File "D:\Develop\MemeTalk\streamlit_app.py", line 7, in <module>
-    API_BASE_URL = st.secrets.get("api_base_url", "http://127.0.0.1:8000").rstrip("/")
-                   ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-File "<frozen _collections_abc>", line 795, in get
-File "D:\Develop\MemeTalk\.venv\Lib\site-packages\streamlit\runtime\secrets.py", line 473, in __getitem__
-    value = self._parse()[key]
-            ~~~~~~~~~~~^^
-File "D:\Develop\MemeTalk\.venv\Lib\site-packages\streamlit\runtime\secrets.py", line 375, in _parse
-    raise StreamlitSecretNotFoundError(error_msg)
+File "D:\Develop\MemeTalk\streamlit_app.py", line 38, in <module>
+    response.raise_for_status()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+File "D:\Develop\MemeTalk\.venv\Lib\site-packages\httpx\_models.py", line 829, in raise_for_status
+    raise HTTPStatusError(message, request=request, response=self)
+uvicorn終端:
+INFO:     127.0.0.1:57336 - "POST /api/v1/search HTTP/1.1" 500 Internal Server Error
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\chromadb\api\client.py", line 601, in _validate_tenant_database
+    self._admin_client.get_tenant(name=tenant)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\chromadb\api\client.py", line 681, in get_tenant
+    return self._server.get_tenant(name=name)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\chromadb\api\rust.py", line 175, in get_tenant
+    tenant = self.bindings.get_tenant(name)
+             ^^^^^^^^^^^^^
+AttributeError: 'RustBindingsAPI' object has no attribute 'bindings'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\chromadb\api\client.py", line 105, in __init__
+    self._validate_tenant_database(tenant=self.tenant, database=self.database)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\chromadb\api\client.py", line 610, in _validate_tenant_database
+    raise ValueError(
+        f"Could not connect to tenant {tenant}. Are you sure it exists?"
+    )
+ValueError: Could not connect to tenant default_tenant. Are you sure it exists?
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\uvicorn\protocols\http\httptools_impl.py", line 416, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        self.scope, self.receive, self.send
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\uvicorn\middleware\proxy_headers.py", line 60, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\fastapi\applications.py", line 1160, in __call__
+    await super().__call__(scope, receive, send)
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\starlette\applications.py", line 107, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\starlette\middleware\errors.py", line 186, in __call__
+    raise exc
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\starlette\middleware\errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\starlette\routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\starlette\routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\starlette\routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\fastapi\routing.py", line 130, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\fastapi\routing.py", line 116, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\fastapi\routing.py", line 670, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\fastapi\routing.py", line 326, in run_endpoint_function
+    return await run_in_threadpool(dependant.call, **values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\starlette\concurrency.py", line 32, in run_in_threadpool
+    return await anyio.to_thread.run_sync(func)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\anyio\to_thread.py", line 63, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        func, args, abandon_on_cancel=abandon_on_cancel, limiter=limiter
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 2502, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 986, in run
+    result = context.run(func, *args)
+  File "D:\Develop\MemeTalk\src\memetalk\api\main.py", line 32, in search
+    response = active_container.search_service.search(
+        query=payload.query,
+        top_n=payload.top_n,
+        candidate_k=max(payload.candidate_k, payload.top_n),
+    )
+  File "D:\Develop\MemeTalk\src\memetalk\app\search.py", line 27, in search
+    vector_matches = self.vector_store.query(query_vector, top_k=max(top_n, candidate_k))
+  File "D:\Develop\MemeTalk\src\memetalk\storage\vector_store.py", line 76, in query
+    collection = self._get_collection()
+  File "D:\Develop\MemeTalk\src\memetalk\storage\vector_store.py", line 62, in _get_collection
+    client = chromadb.PersistentClient(path=str(self.persist_directory))
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\chromadb\__init__.py", line 226, in PersistentClient
+    return ClientCreator(tenant=tenant, database=database, settings=settings)
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\chromadb\api\client.py", line 114, in __init__
+    SharedSystemClient._release_system(self._identifier)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\chromadb\api\shared_system_client.py", line 124, in _release_system
+    system.stop()
+    ~~~~~~~~~~~^^
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\chromadb\config.py", line 473, in stop
+    component.stop()
+    ~~~~~~~~~~~~~~^^
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\chromadb\api\rust.py", line 131, in stop
+    del self.bindings
+        ^^^^^^^^^^^^^
+AttributeError: 'RustBindingsAPI' object has no attribute 'bindings'
+INFO:     127.0.0.1:57337 - "POST /api/v1/search HTTP/1.1" 500 Internal Server Error
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\uvicorn\protocols\http\httptools_impl.py", line 416, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        self.scope, self.receive, self.send
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\uvicorn\middleware\proxy_headers.py", line 60, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\fastapi\applications.py", line 1160, in __call__
+    await super().__call__(scope, receive, send)
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\starlette\applications.py", line 107, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\starlette\middleware\errors.py", line 186, in __call__
+    raise exc
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\starlette\middleware\errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\starlette\routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\starlette\routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\starlette\routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\fastapi\routing.py", line 130, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\fastapi\routing.py", line 116, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\fastapi\routing.py", line 670, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\fastapi\routing.py", line 326, in run_endpoint_function
+    return await run_in_threadpool(dependant.call, **values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\starlette\concurrency.py", line 32, in run_in_threadpool
+    return await anyio.to_thread.run_sync(func)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\anyio\to_thread.py", line 63, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        func, args, abandon_on_cancel=abandon_on_cancel, limiter=limiter
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 2502, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 986, in run
+    result = context.run(func, *args)
+  File "D:\Develop\MemeTalk\src\memetalk\api\main.py", line 32, in search
+    response = active_container.search_service.search(
+        query=payload.query,
+        top_n=payload.top_n,
+        candidate_k=max(payload.candidate_k, payload.top_n),
+    )
+  File "D:\Develop\MemeTalk\src\memetalk\app\search.py", line 27, in search
+    vector_matches = self.vector_store.query(query_vector, top_k=max(top_n, candidate_k))
+  File "D:\Develop\MemeTalk\src\memetalk\storage\vector_store.py", line 76, in query
+    collection = self._get_collection()
+  File "D:\Develop\MemeTalk\src\memetalk\storage\vector_store.py", line 62, in _get_collection
+    client = chromadb.PersistentClient(path=str(self.persist_directory))
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\chromadb\__init__.py", line 226, in PersistentClient
+    return ClientCreator(tenant=tenant, database=database, settings=settings)
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\chromadb\api\client.py", line 69, in __init__
+    super().__init__(settings=settings)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\chromadb\api\shared_system_client.py", line 25, in __init__
+    SharedSystemClient._create_system_if_not_exists(self._identifier, settings)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Develop\MemeTalk\.venv\Lib\site-packages\chromadb\api\shared_system_client.py", line 49, in _create_system_if_not_exists
+    return cls._identifier_to_system[identifier]
+           ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+KeyError: 'data\\chroma'
