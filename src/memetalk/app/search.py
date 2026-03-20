@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from collections import OrderedDict
 from dataclasses import dataclass, field
 
 from memetalk.core.models import (
@@ -29,6 +31,9 @@ from memetalk.storage.vector_store import VectorStore
 FALLBACK_REASON = "deterministic 排序 fallback：暫時無法完成 rerank，保留綜合檢索與規則評分最高的候選結果。"
 RERANK_POOL_MULTIPLIER = 3
 REPLY_NON_OCR_SCORE_CAP = 0.48
+QUERY_ANALYSIS_CACHE_SIZE = 128
+QUERY_EMBEDDING_CACHE_SIZE = 256
+RERANK_RESULT_CACHE_SIZE = 128
 
 
 @dataclass(slots=True)
@@ -49,9 +54,21 @@ class SearchService:
         self.vector_store = vector_store
         self.providers = providers
         self.api_base_url = api_base_url.rstrip("/")
+        self._query_analysis_cache: OrderedDict[str, QueryAnalysis] = OrderedDict()
+        self._query_embedding_cache: OrderedDict[str, list[float]] = OrderedDict()
+        self._rerank_cache: OrderedDict[str, list] = OrderedDict()
+        self._provider_cache_identity = self._build_provider_cache_identity()
 
-    def search(self, query: str, top_n: int, candidate_k: int, mode: SearchMode = SearchMode.REPLY) -> SearchResponse:
-        query_analysis = self.providers.query_analyzer.analyze_query(query, mode=mode)
+    def search(
+        self,
+        query: str,
+        top_n: int,
+        candidate_k: int,
+        mode: SearchMode = SearchMode.REPLY,
+        preferred_tone: str | None = None,
+    ) -> SearchResponse:
+        self._ensure_cache_identity()
+        query_analysis = self._get_query_analysis(query, mode, preferred_tone)
         route_scores, search_trace = self._retrieve_candidates(query_analysis, top_n, candidate_k, mode)
         asset_map = self.repository.get_assets_by_ids(list(route_scores.keys()))
         candidates = self._build_candidates(asset_map, route_scores, query_analysis, mode)
@@ -93,7 +110,18 @@ class SearchService:
             candidate_counts["keyword"] = len(keyword_matches)
 
             reply_query_text = build_reply_query_text(query_analysis)
-            reply_vector = self.providers.embedding_provider.embed_texts([reply_query_text])[0]
+            semantic_limit = max(top_n, limit // 2)
+        else:
+            reply_query_text = None
+            semantic_limit = limit
+
+        semantic_query_text = build_semantic_query_text(query_analysis)
+        query_texts = {"semantic": semantic_query_text}
+        if reply_query_text is not None:
+            query_texts["reply_text"] = reply_query_text
+        query_vectors = self._embed_query_texts(query_texts)
+        if reply_query_text is not None:
+            reply_vector = query_vectors["reply_text"]
             reply_index_version = build_index_version(
                 self.providers.embedding_provider.index_identity(),
                 len(reply_vector),
@@ -109,12 +137,7 @@ class SearchService:
             self._merge_matches(merged, reply_matches, "reply_text", "reply_vector")
             routes_used.append("reply_text")
             candidate_counts["reply_text"] = len(reply_matches)
-            semantic_limit = max(top_n, limit // 2)
-        else:
-            semantic_limit = limit
-
-        semantic_query_text = build_semantic_query_text(query_analysis)
-        semantic_vector = self.providers.embedding_provider.embed_texts([semantic_query_text])[0]
+        semantic_vector = query_vectors["semantic"]
         semantic_index_version = build_index_version(
             self.providers.embedding_provider.index_identity(),
             len(semantic_vector),
@@ -197,6 +220,18 @@ class SearchService:
                 [query_analysis.reply_intent],
                 " ".join(asset.metadata.intent_tags),
             )
+            feature_scores["preferred_tone_match"] = lexical_overlap_score(
+                [query_analysis.preferred_tone] if query_analysis.preferred_tone else [],
+                "\n".join(
+                    [
+                        asset.metadata.meme_usage,
+                        " ".join(asset.metadata.style_tags),
+                        " ".join(asset.metadata.emotion_tags),
+                        " ".join(asset.metadata.intent_tags),
+                        asset.metadata.ocr_text,
+                    ]
+                ),
+            )
             feature_scores["semantic_text_overlap"] = lexical_overlap_score(
                 query_analysis.query_terms or [query_analysis.original_query],
                 f"{asset.metadata.scene_description}\n{asset.metadata.meme_usage}",
@@ -238,6 +273,7 @@ class SearchService:
         ocr_overlap = max(feature_scores.get("ocr_route_score", 0.0), feature_scores.get("ocr_overlap", 0.0))
         emotion_overlap = feature_scores.get("emotion_overlap", 0.0)
         intent_match = feature_scores.get("intent_match", 0.0)
+        preferred_tone_match = feature_scores.get("preferred_tone_match", 0.0)
         semantic_text_overlap = feature_scores.get("semantic_text_overlap", 0.0)
         penalty = ocr_penalty(asset.metadata, mode)
 
@@ -250,6 +286,7 @@ class SearchService:
                 + (ocr_overlap * 0.42)
                 + (intent_match * 0.13)
                 + (emotion_overlap * 0.05)
+                + (preferred_tone_match * 0.16)
                 - penalty
             )
             if asset.metadata.ocr_status != OCRStatus.SUCCESS:
@@ -263,6 +300,7 @@ class SearchService:
             + (semantic_text_overlap * 0.22)
             + (emotion_overlap * 0.08)
             + (intent_match * 0.03)
+            + (preferred_tone_match * 0.05)
             - (penalty * 0.3)
         )
 
@@ -279,7 +317,7 @@ class SearchService:
         rerank_pool_size = max(top_n, min(len(candidates), top_n * RERANK_POOL_MULTIPLIER))
         rerank_pool = self._build_rerank_pool(candidates, rerank_pool_size, mode)
         try:
-            reranked = self.providers.reranker.rerank(query, query_analysis, rerank_pool, top_n, mode=mode)
+            reranked = self._rerank_candidates(query, query_analysis, rerank_pool, top_n, mode)
             reranked_by_id = {item.image_id: item for item in reranked}
             ordered_candidates = [candidate for candidate in rerank_pool if candidate.image_id in reranked_by_id]
             if len(ordered_candidates) < top_n:
@@ -344,3 +382,123 @@ class SearchService:
         degraded = [candidate for candidate in candidates if candidate.metadata.ocr_status != OCRStatus.SUCCESS]
         ordered = ocr_backed + degraded
         return ordered[:rerank_pool_size]
+
+    def _get_query_analysis(
+        self,
+        query: str,
+        mode: SearchMode,
+        preferred_tone: str | None,
+    ) -> QueryAnalysis:
+        cache_key = json.dumps(
+            {"query": query, "mode": mode.value, "preferred_tone": preferred_tone},
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        cached = self._cache_get(self._query_analysis_cache, cache_key)
+        if cached is not None:
+            return cached
+        analysis = self.providers.query_analyzer.analyze_query(
+            query,
+            mode=mode,
+            preferred_tone=preferred_tone,
+        )
+        self._cache_set(self._query_analysis_cache, cache_key, analysis, QUERY_ANALYSIS_CACHE_SIZE)
+        return analysis
+
+    def _embed_query_texts(self, query_texts: dict[str, str]) -> dict[str, list[float]]:
+        embedding_identity = self.providers.embedding_provider.index_identity()
+        vectors: dict[str, list[float]] = {}
+        missing_texts: list[str] = []
+        missing_routes: list[str] = []
+        route_cache_keys: dict[str, str] = {}
+        for route_name, text in query_texts.items():
+            cache_key = json.dumps(
+                {"embedding_identity": embedding_identity, "text": text},
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+            route_cache_keys[route_name] = cache_key
+            cached = self._cache_get(self._query_embedding_cache, cache_key)
+            if cached is not None:
+                vectors[route_name] = cached
+                continue
+            missing_routes.append(route_name)
+            missing_texts.append(text)
+        if missing_texts:
+            embedded = self.providers.embedding_provider.embed_texts(missing_texts)
+            for route_name, vector in zip(missing_routes, embedded, strict=False):
+                cache_key = route_cache_keys[route_name]
+                self._cache_set(self._query_embedding_cache, cache_key, vector, QUERY_EMBEDDING_CACHE_SIZE)
+                vectors[route_name] = vector
+        return vectors
+
+    def _rerank_candidates(
+        self,
+        query: str,
+        query_analysis: QueryAnalysis,
+        candidates: list[RerankCandidate],
+        top_n: int,
+        mode: SearchMode,
+    ) -> list:
+        cache_key = json.dumps(
+            {
+                "query": query,
+                "mode": mode.value,
+                "top_n": top_n,
+                "query_analysis": query_analysis.model_dump(mode="json"),
+                "candidates": [
+                    {
+                        "image_id": candidate.image_id,
+                        "vector_score": round(candidate.vector_score, 6),
+                        "candidate_sources": candidate.candidate_sources,
+                        "feature_scores": {
+                            key: round(value, 6) for key, value in sorted(candidate.feature_scores.items())
+                        },
+                        "degradation_flags": candidate.degradation_flags,
+                        "ocr_status": candidate.metadata.ocr_status.value,
+                    }
+                    for candidate in candidates
+                ],
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        cached = self._cache_get(self._rerank_cache, cache_key)
+        if cached is not None:
+            return cached
+        reranked = self.providers.reranker.rerank(query, query_analysis, candidates, top_n, mode=mode)
+        self._cache_set(self._rerank_cache, cache_key, reranked, RERANK_RESULT_CACHE_SIZE)
+        return reranked
+
+    def _build_provider_cache_identity(self) -> str:
+        return json.dumps(
+            {
+                "trace": self.providers.trace(),
+                "embedding_identity": self.providers.embedding_provider.index_identity(),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+
+    def _ensure_cache_identity(self) -> None:
+        current_identity = self._build_provider_cache_identity()
+        if current_identity == self._provider_cache_identity:
+            return
+        self._query_analysis_cache.clear()
+        self._query_embedding_cache.clear()
+        self._rerank_cache.clear()
+        self._provider_cache_identity = current_identity
+
+    def _cache_get(self, cache: OrderedDict[str, object], key: str):
+        if key not in cache:
+            return None
+        value = cache.pop(key)
+        cache[key] = value
+        return value
+
+    def _cache_set(self, cache: OrderedDict[str, object], key: str, value: object, max_size: int) -> None:
+        if key in cache:
+            cache.pop(key)
+        cache[key] = value
+        while len(cache) > max_size:
+            cache.popitem(last=False)

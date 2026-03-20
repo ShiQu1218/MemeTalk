@@ -58,27 +58,29 @@ def build_keyword_text(metadata: MemeMetadata) -> str:
 
 
 def build_semantic_query_text(query_analysis: QueryAnalysis) -> str:
-    return "\n".join(
-        [
-            f"情境：{query_analysis.situation}",
-            f"情緒：{'、'.join(query_analysis.emotions) or '無'}",
-            f"語氣：{query_analysis.tone}",
-            f"回覆意圖：{query_analysis.reply_intent}",
-            f"語意查詢：{query_analysis.query_embedding_text}",
-        ]
-    )
+    parts = [
+        f"情境：{query_analysis.situation}",
+        f"情緒：{'、'.join(query_analysis.emotions) or '無'}",
+        f"語氣：{query_analysis.tone}",
+        f"回覆意圖：{query_analysis.reply_intent}",
+    ]
+    if query_analysis.preferred_tone:
+        parts.append(f"偏好梗圖語氣：{query_analysis.preferred_tone}")
+    parts.append(f"語意查詢：{query_analysis.query_embedding_text}")
+    return "\n".join(parts)
 
 
 def build_reply_query_text(query_analysis: QueryAnalysis) -> str:
     query_terms = "、".join(query_analysis.query_terms) or query_analysis.original_query
-    return "\n".join(
-        [
-            f"適合回覆的字句：{query_terms}",
-            f"語氣：{query_analysis.tone}",
-            f"回覆意圖：{query_analysis.reply_intent}",
-            f"模板提示：{'、'.join(query_analysis.template_hints) or '無'}",
-        ]
-    )
+    parts = [
+        f"適合回覆的字句：{query_terms}",
+        f"語氣：{query_analysis.tone}",
+        f"回覆意圖：{query_analysis.reply_intent}",
+    ]
+    if query_analysis.preferred_tone:
+        parts.append(f"偏好梗圖語氣：{query_analysis.preferred_tone}")
+    parts.append(f"模板提示：{'、'.join(query_analysis.template_hints) or '無'}")
+    return "\n".join(parts)
 
 
 def default_retrieval_weights(mode: SearchMode) -> RetrievalWeights:

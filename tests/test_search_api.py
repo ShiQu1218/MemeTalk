@@ -55,7 +55,7 @@ def test_health_and_search_endpoints_return_expected_shape(tmp_path: Path) -> No
     health_response = client.get("/api/v1/health")
     search_response = client.post(
         "/api/v1/search",
-        json={"query": "朋友說快到了但還沒出門", "top_n": 3, "candidate_k": 8},
+        json={"query": "朋友說快到了但還沒出門", "top_n": 3, "candidate_k": 8, "preferred_tone": "陰陽怪氣"},
     )
 
     assert health_response.status_code == 200
@@ -64,6 +64,7 @@ def test_health_and_search_endpoints_return_expected_shape(tmp_path: Path) -> No
     payload = search_response.json()
     assert set(payload.keys()) == {"query_analysis", "results", "provider_trace", "search_trace"}
     assert len(payload["results"]) == 3
+    assert payload["query_analysis"]["preferred_tone"] == "陰陽怪氣"
     assert {"routes_used", "candidate_counts", "rerank_strategy"} <= set(payload["search_trace"].keys())
     assert {"image_id", "image_url", "reason", "score", "template_name", "emotion_tags", "intent_tags", "debug"} <= set(
         payload["results"][0].keys()

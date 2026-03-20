@@ -142,6 +142,7 @@ class QueryAnalysis(BaseModel):
     emotions: list[str] = Field(default_factory=list)
     tone: str
     reply_intent: str
+    preferred_tone: str | None = None
     query_embedding_text: str
     query_terms: list[str] = Field(default_factory=list)
     template_hints: list[str] = Field(default_factory=list)
@@ -154,6 +155,14 @@ class QueryAnalysis(BaseModel):
             delimiter = "、" if "、" in values else ","
             values = [v.strip() for v in values.split(delimiter) if v.strip()]
         return _clean_tags(values)
+
+    @field_validator("preferred_tone", mode="before")
+    @classmethod
+    def normalize_preferred_tone(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        trimmed = value.strip()
+        return trimmed or None
 
 
 class SearchMatch(BaseModel):
@@ -218,6 +227,7 @@ class SearchRequest(BaseModel):
     top_n: int = Field(default=3, ge=1, le=5)
     candidate_k: int = Field(default=15, ge=1, le=30)
     mode: SearchMode = SearchMode.REPLY
+    preferred_tone: str | None = None
 
     @field_validator("query")
     @classmethod
@@ -226,6 +236,14 @@ class SearchRequest(BaseModel):
         if not trimmed:
             raise ValueError("Query must not be blank.")
         return trimmed
+
+    @field_validator("preferred_tone", mode="before")
+    @classmethod
+    def trim_preferred_tone(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        trimmed = value.strip()
+        return trimmed or None
 
 
 class IndexErrorRecord(BaseModel):

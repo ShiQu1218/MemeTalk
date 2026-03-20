@@ -52,6 +52,7 @@ def test_lmstudio_query_analyzer_uses_compatible_client(monkeypatch) -> None:
                                 "```json\n"
                                 '{"situation":"主管突然改需求","emotions":["厭世"],'
                                 '"tone":"吐槽型回覆","reply_intent":"抱怨",'
+                                '"preferred_tone":"陰陽怪氣",'
                                 '"query_embedding_text":"主管突然改需求 厭世 吐槽"}\n'
                                 "```"
                             )
@@ -67,16 +68,18 @@ def test_lmstudio_query_analyzer_uses_compatible_client(monkeypatch) -> None:
     settings = AppSettings(provider_backend="lmstudio", lmstudio_chat_model="local-chat-model")
     analyzer = CompatibleQueryAnalyzer(build_lmstudio_profile(settings))
 
-    result = analyzer.analyze_query("主管又改需求")
+    result = analyzer.analyze_query("主管又改需求", preferred_tone="陰陽怪氣")
 
     assert result.situation == "主管突然改需求"
     assert result.emotions == ["厭世"]
     assert result.reply_intent == "抱怨"
+    assert result.preferred_tone == "陰陽怪氣"
     assert DummyOpenAI.init_kwargs == {"api_key": "lm-studio", "base_url": "http://127.0.0.1:1234/v1"}
     assert DummyOpenAI.create_kwargs is not None
     assert DummyOpenAI.create_kwargs["model"] == "local-chat-model"
     assert DummyOpenAI.create_kwargs["temperature"] == 0
     assert "response_format" not in DummyOpenAI.create_kwargs
+    assert '"preferred_tone": "陰陽怪氣"' in DummyOpenAI.create_kwargs["messages"][1]["content"]
 
 
 def test_lmstudio_embedding_error_is_actionable(monkeypatch) -> None:

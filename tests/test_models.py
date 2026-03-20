@@ -68,3 +68,9 @@ def test_search_request_rejects_blank_query() -> None:
         assert "blank" in str(exc).lower()
     else:
         raise AssertionError("Blank queries must fail validation.")
+
+
+def test_search_request_trims_optional_preferred_tone() -> None:
+    request = SearchRequest(query="主管又改需求", preferred_tone="  陰陽怪氣  ")
+
+    assert request.preferred_tone == "陰陽怪氣"

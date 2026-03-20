@@ -126,23 +126,32 @@ class MockEmbeddingProvider(EmbeddingProvider):
 class MockQueryAnalyzer(QueryAnalyzer):
     name = "mock-query-analyzer"
 
-    def analyze_query(self, query: str, mode: SearchMode = SearchMode.REPLY) -> QueryAnalysis:
+    def analyze_query(
+        self,
+        query: str,
+        mode: SearchMode = SearchMode.REPLY,
+        preferred_tone: str | None = None,
+    ) -> QueryAnalysis:
         emotions, intents, _styles = _derive_tags(query)
         tone = "吐槽型回覆" if "?" not in query else "帶疑問的回覆"
         reply_intent = intents[0]
         terms = [token for token in re.split(r"[，。！？、\s]+", query) if token]
         template_hints = [term for term in terms if "meme" in term.lower() or "template" in term.lower()]
+        if preferred_tone:
+            terms.append(preferred_tone)
         return QueryAnalysis(
             original_query=query,
             situation=f"使用者描述：{query}",
             emotions=emotions,
             tone=tone,
             reply_intent=reply_intent,
+            preferred_tone=preferred_tone,
             query_embedding_text=(
                 f"情境：{query}\n"
                 f"情緒：{'、'.join(emotions)}\n"
                 f"語氣：{tone}\n"
-                f"回覆意圖：{reply_intent}"
+                f"回覆意圖：{reply_intent}\n"
+                f"偏好梗圖語氣：{preferred_tone or '未指定'}"
             ),
             query_terms=terms,
             template_hints=template_hints,
@@ -206,7 +215,12 @@ class UnsupportedLocalEmbeddingProvider(EmbeddingProvider):
 class UnsupportedLocalQueryAnalyzer(QueryAnalyzer):
     name = "local-unsupported-query"
 
-    def analyze_query(self, query: str, mode: SearchMode = SearchMode.REPLY) -> QueryAnalysis:
+    def analyze_query(
+        self,
+        query: str,
+        mode: SearchMode = SearchMode.REPLY,
+        preferred_tone: str | None = None,
+    ) -> QueryAnalysis:
         raise UnsupportedLocalCapabilityError("Local query analyzer is not implemented in the MVP.")
 
 

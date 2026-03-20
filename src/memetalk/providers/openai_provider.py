@@ -196,15 +196,22 @@ class CompatibleQueryAnalyzer(_OpenAICompatibleBase, QueryAnalyzer):
         super().__init__(profile)
         self.name = f"{profile.label}-query-analyzer"
 
-    def analyze_query(self, query: str, mode: SearchMode = SearchMode.REPLY) -> QueryAnalysis:
+    def analyze_query(
+        self,
+        query: str,
+        mode: SearchMode = SearchMode.REPLY,
+        preferred_tone: str | None = None,
+    ) -> QueryAnalysis:
         if mode == SearchMode.REPLY:
             prompt = (
                 "你是繁體中文的梗圖查詢分析器，目前處於「回覆模式」。"
                 "使用者輸入的是一句話，他想找到一張梗圖來當作回覆。"
                 "請把使用者輸入分析成 JSON，欄位為 situation, emotions, tone, reply_intent, "
-                "query_embedding_text, query_terms, template_hints, retrieval_weights。"
+                "preferred_tone, query_embedding_text, query_terms, template_hints, retrieval_weights。"
                 "query_embedding_text 必須描述「適合回覆這句話的梗圖會包含什麼文字或表達什麼意思」，"
                 "而不是重述使用者的輸入。重點放在回應的語氣、態度和可能的文字內容。"
+                "若使用者另有指定 preferred_tone，請把它當成希望梗圖呈現的額外語氣偏好，"
+                "但不要覆蓋原本的情境與回覆意圖。"
                 "query_terms 請列出適合做關鍵字檢索的短詞或短句。"
                 "template_hints 只放使用者明確提到或暗示的模板線索。"
                 "retrieval_weights 必須包含 semantic, reply_text, keyword, template 四個 0 到 1.5 的數字。"
@@ -213,19 +220,31 @@ class CompatibleQueryAnalyzer(_OpenAICompatibleBase, QueryAnalyzer):
             prompt = (
                 "你是繁體中文的梗圖查詢分析器。"
                 "請把使用者輸入分析成 JSON，欄位為 situation, emotions, tone, reply_intent, "
-                "query_embedding_text, query_terms, template_hints, retrieval_weights。"
+                "preferred_tone, query_embedding_text, query_terms, template_hints, retrieval_weights。"
                 "query_embedding_text 必須是適合向量搜尋的繁體中文敘述，必須保留查詢中的關鍵名詞和具體用語，不要過度抽象化。"
+                "若使用者有提供 preferred_tone，請把它視為額外偏好，協助你判斷希望的梗圖風格。"
                 "query_terms 請列出適合做關鍵字檢索的短詞或短句。"
                 "template_hints 只放使用者明確提到或暗示的模板線索。"
                 "retrieval_weights 必須包含 semantic, reply_text, keyword, template 四個 0 到 1.5 的數字。"
             )
-        data = self._json_completion(prompt, query, self.profile.chat_model)
+        data = self._json_completion(
+            prompt,
+            json.dumps(
+                {
+                    "query": query,
+                    "preferred_tone": preferred_tone,
+                },
+                ensure_ascii=False,
+            ),
+            self.profile.chat_model,
+        )
         return QueryAnalysis(
             original_query=query,
             situation=data["situation"],
             emotions=data.get("emotions", []),
             tone=data["tone"],
             reply_intent=data["reply_intent"],
+            preferred_tone=data.get("preferred_tone") or preferred_tone,
             query_embedding_text=data["query_embedding_text"],
             query_terms=data.get("query_terms", []),
             template_hints=data.get("template_hints", []),
@@ -319,6 +338,7 @@ class CompatibleReranker(_OpenAICompatibleBase, Reranker):
                 "你是梗圖搜尋 reranker，目前處於「回覆模式」。"
                 "先尊重 deterministic_score 與 feature_scores 的排序，再判斷哪張梗圖最適合當作回覆。"
                 "評分重點是 ocr_text 是否構成機智回應、反駁或吐槽；"
+                "如果 query_analysis.preferred_tone 有值，請優先選擇更符合該梗圖語氣偏好的候選。"
                 "若 ocr_status 不是 success，除非其他訊號特別強，否則應降低分數。"
                 "背景或場景資訊只可當作次要 tie-break，不可蓋過台詞本身。"
                 "回傳 JSON 物件，欄位為 results，內容是陣列，每個元素有 image_id, score, reason。"
@@ -328,6 +348,7 @@ class CompatibleReranker(_OpenAICompatibleBase, Reranker):
             prompt = (
                 "你是梗圖搜尋 reranker。請依照 query 與候選 metadata 選出語意最相近的結果。"
                 "先尊重 deterministic_score 與 feature_scores 的排序，再判斷哪張梗圖最符合語意。"
+                "如果 query_analysis.preferred_tone 有值，請把它視為次要偏好，協助挑選更接近使用者想要語氣的結果。"
                 "重要：梗圖的整體語意、情境描述與情緒標籤的匹配度是最關鍵的排序依據。"
                 "回傳 JSON 物件，欄位為 results，內容是陣列，每個元素有 image_id, score, reason。"
                 "reason 必須是繁體中文且解釋語氣與情境。"

@@ -39,7 +39,12 @@ class QueryAnalyzer(ABC):
     name: str
 
     @abstractmethod
-    def analyze_query(self, query: str, mode: SearchMode = SearchMode.REPLY) -> QueryAnalysis:
+    def analyze_query(
+        self,
+        query: str,
+        mode: SearchMode = SearchMode.REPLY,
+        preferred_tone: str | None = None,
+    ) -> QueryAnalysis:
         raise NotImplementedError
 
 

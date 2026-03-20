@@ -23,6 +23,10 @@ mode_label = st.radio("搜尋模式", list(_MODE_OPTIONS.keys()), horizontal=Tru
 search_mode = _MODE_OPTIONS[mode_label]
 
 query = st.text_area("想回什麼情境？", height=120, placeholder="例如：朋友說快到了但其實根本還沒出門")
+preferred_tone = st.text_input(
+    "偏好的梗圖語氣（可選）",
+    placeholder="例如：嘴砲、冷淡、可憐、陰陽怪氣",
+)
 
 if st.button("搜尋梗圖", type="primary", use_container_width=True):
     if not query.strip():
@@ -36,6 +40,7 @@ if st.button("搜尋梗圖", type="primary", use_container_width=True):
                     top_n=container.settings.search_top_n_default,
                     candidate_k=container.settings.search_candidate_k_default,
                     mode=search_mode,
+                    preferred_tone=preferred_tone,
                 )
 
             st.subheader("查詢分析")
@@ -44,6 +49,7 @@ if st.button("搜尋梗圖", type="primary", use_container_width=True):
             st.write(f"**情緒：** {'、'.join(analysis.emotions) or '無'}")
             st.write(f"**語氣：** {analysis.tone}")
             st.write(f"**回覆意圖：** {analysis.reply_intent}")
+            st.write(f"**偏好梗圖語氣：** {analysis.preferred_tone or '未指定'}")
             st.write(f"**搜尋文字：** {analysis.query_embedding_text}")
             st.write(f"**查詢詞：** {'、'.join(analysis.query_terms) or '無'}")
             st.write(f"**模板提示：** {'、'.join(analysis.template_hints) or '無'}")

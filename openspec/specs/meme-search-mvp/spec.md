@@ -47,7 +47,8 @@
 
 ### REQ-MVP-004 Query Understanding and Vector Retrieval
 - The system MUST expose `POST /api/v1/search`.
-- Search input MUST be analyzed into structured query fields: situation, emotion, tone, reply intent, query terms, template hints, and retrieval weights.
+- Search input MUST support an optional user-provided preferred meme tone hint.
+- Search input MUST be analyzed into structured query fields: situation, emotion, tone, reply intent, query terms, template hints, retrieval weights, and preferred meme tone.
 - Search MUST support two search modes via a `mode` field (`semantic` | `reply`, default `reply`):
   - **semantic**: finds memes whose overall meaning is close to the query.
   - **reply**: finds memes suitable as a witty reply to the query; OCR text weight is dominant.
@@ -61,6 +62,8 @@
 - In `reply` mode, OCR keyword/template retrieval and the `reply_text` channel MUST be the primary routes; the semantic channel MUST be treated as a supplemental backfill route only.
 - Search MUST merge, deduplicate, and score candidates from all enabled retrieval routes before reranking.
 - Search MUST generate route-specific retrieval inputs from query analysis rather than relying on a single query embedding string as the only retrieval artifact.
+- Search SHOULD batch query embedding generation across active retrieval routes within a single search request when those routes use the same embedding provider.
+- Search SHOULD reuse in-memory cached query analysis, query embeddings, and rerank outputs for repeated identical searches within the same process when the provider configuration has not changed.
 - Search output MUST include `query_analysis`, `results`, `provider_trace`, and a minimal `search_trace` showing candidate-source and degradation information.
 
 ### REQ-MVP-005 LLM Reranking and Reasoning
@@ -87,6 +90,7 @@
   - **Settings** (`pages/1_⚙️_Settings.py`): provider selection (openai / lmstudio / mock), API key input, base URL, model configuration, vector backend, and OCR backend. Settings MUST be persisted to a TOML file (`data/memetalk_config.toml`).
   - **Index** (`pages/2_📦_Index.py`): meme folder path input, optional force-reindex toggle, progress display, and result summary (processed / indexed / skipped / failed counts with error details).
   - **Search** (`pages/3_🔍_Search.py`): search mode selector (適合回覆 / 契合語意), natural-language query input, query analysis display, top-N result cards with images loaded from local file paths, recommended reason text, and visible emotion and intent tags.
+- The Search page MUST include an optional input for preferred meme tone (for example 嘴砲, 冷淡, 可憐, 陰陽怪氣) and pass that preference into query analysis and reranking.
 - Settings MUST support a priority chain: environment variables > TOML config file > pydantic defaults.
 - The app MUST NOT require manual environment variable configuration or a `secrets.toml` file to start.
 
@@ -95,7 +99,7 @@
   - OCR via `extract_text`
   - metadata analysis via `analyze_image`
   - embeddings via `embed_texts`
-  - query analysis via `analyze_query(query, mode)`
+  - query analysis via `analyze_query(query, mode, preferred_tone=None)`
   - reranking via `rerank(query, query_analysis, candidates, top_n, mode)`
 - OpenAI MUST be the default cloud provider configuration.
 - The OpenAI-backed provider path MUST support OpenAI-compatible chat, vision, and embedding endpoints through configurable base URL and model settings.
