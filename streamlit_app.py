@@ -1,52 +1,63 @@
 from __future__ import annotations
 
-import httpx
 import streamlit as st
-from streamlit.errors import StreamlitSecretNotFoundError
 
-from memetalk.app.ui_config import resolve_api_base_url
+from memetalk.app.settings_io import load_settings
 
+st.set_page_config(page_title="MemeTalk", page_icon="🎭", layout="wide")
+st.title("🎭 MemeTalk")
+st.caption("梗圖語意搜尋系統 — 在左側選單切換頁面。")
 
-def _load_streamlit_secrets():
-    try:
-        secrets = st.secrets
-        len(secrets)  # force parsing; st.secrets is lazy
-        return secrets
-    except StreamlitSecretNotFoundError:
-        return None
+# --- Load settings ---
+settings = load_settings()
 
+# --- Settings status ---
+st.subheader("⚙️ 目前設定")
+col1, col2, col3 = st.columns(3)
+col1.metric("Provider", settings.provider_backend)
+col2.metric("Vector Backend", settings.vector_backend)
+col3.metric("OCR Backend", settings.ocr_backend)
 
-API_BASE_URL = resolve_api_base_url(_load_streamlit_secrets())
+# --- Index status ---
+st.subheader("📦 索引狀態")
+try:
+    from memetalk.storage.sqlite_store import SQLiteMemeRepository
 
-
-st.set_page_config(page_title="MemeTalk Demo", layout="wide")
-st.title("MemeTalk")
-st.caption("輸入一句情境、吐槽或情緒描述，回傳最適合的回覆梗圖。")
-
-query = st.text_area("想回什麼情境？", height=120, placeholder="例如：朋友說快到了但其實根本還沒出門")
-
-if st.button("搜尋梗圖", type="primary", use_container_width=True):
-    if not query.strip():
-        st.warning("請先輸入查詢內容。")
+    if settings.sqlite_path.exists():
+        repo = SQLiteMemeRepository(settings.sqlite_path)
+        repo.initialize()
+        count = repo.count_assets()
+        st.metric("已索引梗圖數量", f"{count} 張")
     else:
-        with st.spinner("搜尋中..."):
-            response = httpx.post(
-                f"{API_BASE_URL}/api/v1/search",
-                json={"query": query, "top_n": 3, "candidate_k": 8},
-                timeout=30.0,
-            )
-            response.raise_for_status()
-            payload = response.json()
+        st.info("尚未建立索引資料庫。請至「索引」頁面建立索引。")
+except Exception as e:
+    st.warning(f"無法讀取索引狀態：{e}")
 
-        st.subheader("查詢分析")
-        st.write(payload["query_analysis"])
+# --- Health check ---
+st.subheader("🏥 系統健康檢查")
+try:
+    from memetalk.app.container import build_container
 
-        st.subheader("推薦結果")
-        columns = st.columns(3)
-        for column, result in zip(columns, payload["results"], strict=False):
-            with column:
-                st.image(result["image_url"], use_container_width=True)
-                st.markdown(f"**推薦理由**\n\n{result['reason']}")
-                st.caption(f"模板：{result['template_name'] or '未知模板'}")
-                st.write("情緒標籤：", "、".join(result["emotion_tags"]) or "無")
-                st.write("意圖標籤：", "、".join(result["intent_tags"]) or "無")
+    with st.spinner("檢查中..."):
+        container = build_container(settings)
+    st.success("系統正常，所有元件已就緒。")
+    st.session_state["container"] = container
+
+    provider_trace = container.providers.trace()
+    with st.expander("Provider 詳細資訊"):
+        for key, value in provider_trace.items():
+            st.text(f"{key}: {value}")
+except Exception as e:
+    st.error(f"系統初始化失敗：{e}")
+    st.info("請至「設定」頁面確認設定是否正確。")
+
+# --- Navigation hints ---
+st.divider()
+st.markdown(
+    """
+**快速導航：**
+- **⚙️ 設定** — 設定 Provider、API Key 等參數
+- **📦 索引** — 建立或重新建立梗圖索引
+- **🔍 搜尋** — 輸入情境搜尋最適合的梗圖
+"""
+)

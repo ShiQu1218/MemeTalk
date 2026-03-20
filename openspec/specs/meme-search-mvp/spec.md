@@ -50,15 +50,17 @@
 - The API MUST expose an image asset endpoint addressable by `image_id`.
 - The API MUST not require Streamlit to access SQLite directly.
 
-### REQ-MVP-007 Streamlit Demo UI
-- The repository MUST include a Streamlit app for the MVP demo.
-- The demo UI MUST start without requiring a `secrets.toml` file and MUST fall back to a default local API base URL when secrets are absent.
-- The demo UI MUST provide:
-  - one natural-language query input
-  - a submit action
-  - top-3 result cards
-  - recommended reason text
-  - visible emotion and intent tags
+### REQ-MVP-007 Streamlit Unified Frontend
+- The repository MUST include a multi-page Streamlit app as the primary user interface.
+- The app MUST operate in Direct Mode, calling Python services directly without requiring a separate HTTP API server.
+- The app MUST be launchable with a single command: `streamlit run streamlit_app.py`.
+- The app MUST include the following pages:
+  - **Dashboard** (`streamlit_app.py`): system status overview showing current provider, vector backend, indexed meme count, and a health check.
+  - **Settings** (`pages/1_⚙️_Settings.py`): provider selection (openai / lmstudio / mock), API key input, base URL, model configuration, vector backend, and OCR backend. Settings MUST be persisted to a TOML file (`data/memetalk_config.toml`).
+  - **Index** (`pages/2_📦_Index.py`): meme folder path input, optional force-reindex toggle, progress display, and result summary (processed / indexed / skipped / failed counts with error details).
+  - **Search** (`pages/3_🔍_Search.py`): natural-language query input, query analysis display, top-N result cards with images loaded from local file paths, recommended reason text, and visible emotion and intent tags.
+- Settings MUST support a priority chain: environment variables > TOML config file > pydantic defaults.
+- The app MUST NOT require manual environment variable configuration or a `secrets.toml` file to start.
 
 ### REQ-MVP-008 Provider Abstraction
 - The system MUST define replaceable provider interfaces for:
