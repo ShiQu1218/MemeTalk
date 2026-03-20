@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "memetalk"
+version = "0.1.0"
+description = "Meme semantic search MVP"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "httpx>=0.28,<1",
+  "numpy>=2.1,<3",
+  "pillow>=11,<12",
+  "pydantic>=2.10,<3",
+  "streamlit>=1.42,<2",
+  "uvicorn>=0.32,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3,<9",
+]
+openai = [
+  "openai>=1.52,<2",
+]
+chroma = [
+  "chromadb>=0.5,<1",
+]
+ocr = [
+  "paddleocr>=2.9,<3",
+]
+
+[project.scripts]
+memetalk = "memetalk.cli.main:main"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

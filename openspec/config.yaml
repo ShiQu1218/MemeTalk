@@ -1,0 +1,11 @@
+project:
+  name: MemeTalk
+  language: zh-TW
+  default_spec: meme-search-mvp
+openspec:
+  version: 0.1
+  source_of_truth: true
+paths:
+  specs_dir: openspec/specs
+  code_dir: src/memetalk
+  tests_dir: tests
