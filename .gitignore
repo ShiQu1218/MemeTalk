@@ -42,6 +42,9 @@ Thumbs.db
 # Streamlit
 .streamlit/secrets.toml
 
+# Meme images
+Meme_folder/
+
 # Data & models (large files)
 data/
 *.db

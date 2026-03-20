@@ -36,6 +36,7 @@ class AppSettings(BaseModel):
     lmstudio_embedding_model: str | None = None
     search_candidate_k_default: int = 8
     search_top_n_default: int = 3
+    meme_folder: str = ""
 
     @classmethod
     def from_env(cls) -> "AppSettings":

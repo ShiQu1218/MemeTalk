@@ -196,7 +196,7 @@ class CompatibleQueryAnalyzer(_OpenAICompatibleBase, QueryAnalyzer):
         prompt = (
             "你是繁體中文的梗圖查詢分析器。"
             "請把使用者輸入分析成 JSON，欄位為 situation, emotions, tone, reply_intent, query_embedding_text。"
-            "query_embedding_text 必須是適合向量搜尋的繁體中文敘述。"
+            "query_embedding_text 必須是適合向量搜尋的繁體中文敘述，必須保留查詢中的關鍵名詞和具體用語，不要過度抽象化。"
         )
         data = self._json_completion(prompt, query, self.profile.chat_model)
         return QueryAnalysis(
@@ -260,6 +260,7 @@ class CompatibleReranker(_OpenAICompatibleBase, Reranker):
                 "template_name": candidate.metadata.template_name,
                 "scene_description": candidate.metadata.scene_description,
                 "meme_usage": candidate.metadata.meme_usage,
+                "ocr_text": candidate.metadata.ocr_text,
                 "emotion_tags": candidate.metadata.emotion_tags,
                 "intent_tags": candidate.metadata.intent_tags,
             }
@@ -267,6 +268,8 @@ class CompatibleReranker(_OpenAICompatibleBase, Reranker):
         ]
         prompt = (
             "你是梗圖搜尋 reranker。請依照 query 與候選 metadata 選出最適合回覆的結果。"
+            "重要：梗圖上的實際文字（ocr_text）與查詢情境的匹配度應該是最關鍵的排序依據。"
+            "如果候選梗圖的 ocr_text 包含與查詢語境直接相關的回應，應給予顯著更高的分數。"
             "回傳 JSON 物件，欄位為 results，內容是陣列，每個元素有 image_id, score, reason。"
             "reason 必須是繁體中文且解釋語氣與情境。"
         )

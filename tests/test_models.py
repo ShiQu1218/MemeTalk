@@ -16,6 +16,7 @@ def test_compose_embedding_text_uses_required_order() -> None:
     embedding_text = compose_embedding_text(metadata)
 
     assert embedding_text.splitlines() == [
+        "核心文字：我快到了",
         "模板資訊：Distracted Boyfriend",
         "畫面描述：男主角回頭看別人，女友一臉傻眼。",
         "常見用途：適合用來表達注意力跑掉或臨陣倒戈。",

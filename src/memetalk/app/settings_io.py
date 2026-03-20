@@ -49,6 +49,7 @@ def load_settings(path: Path = DEFAULT_CONFIG_PATH) -> AppSettings:
         "lmstudio_embedding_model": "MEMETALK_LMSTUDIO_EMBEDDING_MODEL",
         "search_candidate_k_default": "MEMETALK_SEARCH_CANDIDATE_K",
         "search_top_n_default": "MEMETALK_SEARCH_TOP_N",
+        "meme_folder": "MEMETALK_MEME_FOLDER",
     }
 
     for field_name in _SETTINGS_FIELDS:

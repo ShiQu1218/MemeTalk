@@ -34,8 +34,10 @@ if st.button("搜尋梗圖", type="primary", use_container_width=True):
 
             st.subheader("查詢分析")
             analysis = response.query_analysis
-            st.write(f"**情緒：** {analysis.emotion}")
-            st.write(f"**意圖：** {analysis.intent}")
+            st.write(f"**情境：** {analysis.situation}")
+            st.write(f"**情緒：** {'、'.join(analysis.emotions) or '無'}")
+            st.write(f"**語氣：** {analysis.tone}")
+            st.write(f"**回覆意圖：** {analysis.reply_intent}")
             st.write(f"**搜尋文字：** {analysis.query_embedding_text}")
 
             st.subheader("推薦結果")

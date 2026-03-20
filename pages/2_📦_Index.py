@@ -5,7 +5,7 @@ from pathlib import Path
 import streamlit as st
 
 from memetalk.app.container import build_container
-from memetalk.app.settings_io import load_settings
+from memetalk.app.settings_io import load_settings, save_settings
 
 st.set_page_config(page_title="MemeTalk - 索引", page_icon="📦", layout="wide")
 st.title("📦 建立索引")
@@ -13,7 +13,7 @@ st.caption("選擇梗圖資料夾，建立或重新建立語意索引。")
 
 settings = load_settings()
 
-meme_folder = st.text_input("梗圖資料夾路徑", value="Meme_folder", help="包含梗圖圖片的資料夾（支援子資料夾）")
+meme_folder = st.text_input("梗圖資料夾路徑", value=settings.meme_folder, placeholder="例如：D:/MemeData", help="請輸入完整路徑，支援子資料夾")
 reindex = st.checkbox("強制重新索引", value=False, help="勾選後會重新處理所有圖片，包含已索引的")
 
 if st.button("🚀 開始建立索引", type="primary", use_container_width=True):
@@ -30,6 +30,10 @@ if st.button("🚀 開始建立索引", type="primary", use_container_width=True
 
             with st.spinner("正在索引梗圖，這可能需要一些時間..."):
                 summary = container.indexing_service.build_index(folder_path, reindex=reindex)
+
+            if settings.meme_folder != meme_folder:
+                settings.meme_folder = meme_folder
+                save_settings(settings)
 
             st.success("索引完成！")
 

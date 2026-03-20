@@ -51,7 +51,10 @@ class MemeMetadata(BaseModel):
 
 
 def compose_embedding_text(metadata: MemeMetadata) -> str:
-    parts = [
+    parts = []
+    if metadata.ocr_text:
+        parts.append(f"核心文字：{metadata.ocr_text}")
+    parts.extend([
         f"模板資訊：{metadata.template_name or '未知模板'}",
         f"畫面描述：{metadata.scene_description}",
         f"常見用途：{metadata.meme_usage}",
@@ -59,7 +62,7 @@ def compose_embedding_text(metadata: MemeMetadata) -> str:
         "情緒標籤：" + ("、".join(metadata.emotion_tags) if metadata.emotion_tags else "無"),
         "意圖標籤：" + ("、".join(metadata.intent_tags) if metadata.intent_tags else "無"),
         "風格標籤：" + ("、".join(metadata.style_tags) if metadata.style_tags else "無"),
-    ]
+    ])
     return "\n".join(parts)
 
 
