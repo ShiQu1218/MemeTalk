@@ -45,7 +45,7 @@ streamlit run streamlit_app.py
 | Dashboard | `streamlit_app.py` | 系統狀態總覽、已索引數量、健康檢查 |
 | 設定 | `pages/1_⚙️_Settings.py` | Provider / API Key / Backend 設定 |
 | 索引 | `pages/2_📦_Index.py` | 選擇資料夾、建立/重建索引 |
-| 搜尋 | `pages/3_🔍_Search.py` | 自然語言搜尋、梗圖推薦結果 |
+| 搜尋 | `pages/3_🔍_Search.py` | 搜尋模式選擇（適合回覆 / 契合語意）、自然語言搜尋、梗圖推薦結果 |
 
 ## 關鍵運作邏輯
 
@@ -58,8 +58,11 @@ streamlit run streamlit_app.py
 3. 先做 OCR，若 OCR 失敗則降級成空文字，但不會中止整批。
 4. 把圖片與 OCR 結果送進 metadata provider，產出統一結構的梗圖描述。
 5. 依照 metadata 組合 `embedding_text`，把模板、場景、用途、OCR、情緒、意圖、風格串成向量語料。
-6. 呼叫 embedding provider 產生向量。
-7. 將 canonical metadata 寫入 SQLite，並把向量文件寫入 Chroma 或記憶體向量庫。
+6. 為每張梗圖建立兩份 embedding：
+   - **語意模式 (semantic)**：使用完整 `embedding_text`，涵蓋所有 metadata。
+   - **回覆模式 (reply)**：以 OCR 文字為主（重複強調），適合比對「適合拿來回覆」的梗圖。
+7. 呼叫 embedding provider 一次產生兩組向量。
+8. 將 canonical metadata 寫入 SQLite，並把兩份向量文件寫入 Chroma 或記憶體向量庫。
 8. 若單張圖片失敗，錯誤會記錄在 `index_runs`，其餘圖片繼續處理。
 
 對應模組：
@@ -73,17 +76,17 @@ streamlit run streamlit_app.py
 
 在「搜尋」頁面輸入查詢後，系統會：
 
-1. 先把使用者查詢分析成結構化欄位：
-   - `situation`
-   - `emotions`
-   - `tone`
-   - `reply_intent`
-   - `query_embedding_text`
-2. 用 `query_embedding_text` 產生查詢向量。
-3. 從向量庫先取回 top-k 候選圖片。
-4. 再用 reranker 依照語境、情緒與回覆意圖做第二次排序。
-5. 若 rerank 失敗，會退回純向量排序，且每筆結果都會附 fallback reason。
-6. 搜尋結果直接顯示在頁面上，圖片從本機檔案路徑載入。
+1. 使用者先選擇搜尋模式：
+   - **適合回覆 (reply)**：找適合當作回應的梗圖，OCR 文字權重佔 90%。（預設）
+   - **契合語意 (semantic)**：找主題相近的梗圖，整體語意匹配。
+2. 把使用者查詢分析成結構化欄位：
+   - `situation`、`emotions`、`tone`、`reply_intent`、`query_embedding_text`
+   - 回覆模式下，`query_embedding_text` 會描述「適合回覆的梗圖會說什麼」而非重述輸入。
+3. 用 `query_embedding_text` 產生查詢向量。
+4. 從向量庫依所選模式篩選對應的 embedding，取回 top-k 候選圖片（預設 candidate_k=15）。
+5. 再用 reranker 依照模式做第二次排序（回覆模式重 OCR 文字、語意模式重整體匹配）。
+6. 若 rerank 失敗，會退回純向量排序，且每筆結果都會附 fallback reason。
+7. 搜尋結果直接顯示在頁面上，圖片從本機檔案路徑載入。
 
 對應模組：
 
@@ -168,7 +171,7 @@ uvicorn memetalk.api.main:app --reload
 API 端點：
 
 - `GET /api/v1/health`
-- `POST /api/v1/search`
+- `POST /api/v1/search` — 支援 `mode` 欄位（`semantic` | `reply`，預設 `reply`）
 - `GET /api/v1/assets/{image_id}`
 
 ### 環境變數（替代方式）

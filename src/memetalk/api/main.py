@@ -33,6 +33,7 @@ def create_app(settings: AppSettings | None = None, container: AppContainer | No
             query=payload.query,
             top_n=payload.top_n,
             candidate_k=max(payload.candidate_k, payload.top_n),
+            mode=payload.mode,
         )
         return response.model_dump()
 

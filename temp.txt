@@ -1,0 +1,287 @@
+有，而且你這個架構其實已經有一個不錯的底：
+**索引時先做 OCR → metadata → `embedding_text` → 向量搜尋 → rerank**，而且 Provider 抽象也切好了，代表很多優化可以直接插進去，不用大改骨架。
+
+我先直接講結論：
+
+## 最值得先做的 4 個優化
+
+### 1. 不要只存「一份大雜燴 embedding」
+
+你現在是把**模板、場景、用途、OCR、情緒、意圖、風格**全部串成一段 `embedding_text` 去建索引。這很方便，但精確度上常見問題是：
+
+* OCR 噪音會污染整體語意
+* 某些欄位權重被稀釋
+* 使用者查「情境」時，卻被「模板名」或「風格字」干擾
+
+README 也明寫你目前就是把這些欄位串起來。
+
+我建議改成**多向量欄位**，至少拆成這三種：
+
+* `text_ocr_vector`
+* `semantic_desc_vector`（場景、用途、意圖、情緒）
+* `template_vector`（模板/角色/格式梗）
+
+搜尋時不要只打一支向量，而是：
+
+* 查詢分析後，產生不同子查詢
+* 針對不同向量庫各自取 top-k
+* 最後 fusion
+
+這通常比「一段 embedding_text 打天下」更準。
+
+---
+
+### 2. Query 分析要更像「檢索器」，不要只是描述器
+
+你現在搜尋流程會先把查詢分析成：
+
+* `situation`
+* `emotions`
+* `tone`
+* `reply_intent`
+* `query_embedding_text`
+
+再拿 `query_embedding_text` 去檢索。
+
+這方向是對的，但我會建議你把 query analysis 再升級成：
+
+* **literal text intent**：使用者是不是在找某句台詞/某個 OCR 片段
+* **meme template intent**：是不是在找某個模板
+* **reaction intent**：是不是想找「拿來回別人」的梗圖
+* **scene intent**：是不是在找某情境
+* **emotion polarity / intensity**：氣、無奈、酸、敷衍、崩潰程度
+
+因為「找梗圖」不是一般文件搜尋。
+有些 query 是找**語境**，有些是找**回覆效果**，有些其實是在找**圖模板**。
+
+所以 query analyzer 最好輸出：
+
+* 查詢重寫版本
+* 可能關鍵詞
+* 搜索模式權重
+
+例如：
+
+* 「朋友說快到了結果根本還沒出門」
+
+  * scene 權重高
+  * emotion 中
+  * OCR literal 低
+  * reply_intent 高
+
+這樣後面的召回和 rerank 會準很多。
+
+---
+
+### 3. rerank 不要只排「像不像」，要排「適不適合拿來回」
+
+你 README 裡寫目前 reranker 是依照**語境、情緒、回覆意圖**做第二次排序，這方向很好。
+
+但如果要再提高精確度，我建議你把 rerank 的 prompt / schema 明確分成兩層分數：
+
+* **semantic_match_score**：跟 query 情境有多像
+* **reaction_fit_score**：拿來回這句話有多適合
+* **meme_strength_score**：作為梗圖是不是夠直接、夠有梗
+* **ocr_confidence_penalty**：OCR 爛到可能誤判就扣分
+* **template_bonus**：經典模板可適度加分
+
+因為梗圖搜尋常見狀況是：
+
+* A 圖語意超像，但不好笑、不適合回
+* B 圖語意沒那麼像，但回覆效果超好
+
+如果你最後目標是「找最適合丟出去的梗圖」，reranker 的 target 就不能只是 semantic relevance。
+
+---
+
+### 4. OCR 要從「抽文字」升級成「文字區塊理解」
+
+你現在流程是先做 OCR，失敗就空字串繼續。
+這在工程上很穩，但對精確度來說還不夠。
+
+梗圖文字很常有這些特性：
+
+* 上下兩行字幕
+* 對話框分角色
+* 四格漫畫不同格有不同語境
+* 白字黑邊、重疊、歪斜
+* 同一張圖文字位置本身就有語意
+
+所以你若只保留「合併後的純文字」，會丟掉很多資訊。
+
+我建議至少多存：
+
+* OCR 區塊順序
+* bounding box
+* 每段文字所在區域（上/中/下、左/右）
+* 行數與段落切分
+
+這樣你可以在 metadata provider 裡判斷：
+
+* 這是上字幕下字幕型
+* 這是對話型
+* 這是四格型
+* 這是單句 reaction 型
+
+這會直接幫到 rerank。
+
+---
+
+## 第二層很有感的提升
+
+### 5. 建立「template normalization」
+
+你現在 metadata schema 裡有模板欄位，這很好。
+但如果模板名稱不做 normalization，很容易一個模板被寫成好幾種：
+
+* Drake hotline bling
+* drake meme
+* 左右比較那張 drake
+* 不要這個要那個
+
+建議你做一層：
+
+* canonical template id
+* alias list
+* template family
+
+這樣查詢像：
+
+* 「左右比較那種」
+* 「drake 那張」
+* 「嫌棄/偏好那張」
+
+才能被穩定召回。
+
+---
+
+### 6. 加「hard negative」評估集
+
+你現在的 README 比較著重流程與 provider abstraction，沒有看到精確度評估設計。
+
+如果你真的要把 precision 拉高，最有價值的是做一組 evaluation set，尤其要包含 hard negatives：
+
+例如 query：
+
+* 「嘴上說快到了其實還沒出門」
+
+正樣本：
+
+* 遲到、拖延、敷衍相關梗圖
+
+困難負樣本：
+
+* 一般抱怨類
+* 生氣類
+* 等人類但不符合「說快到了」語境
+
+這會幫你看出：
+
+* embedding 問題
+* metadata schema 問題
+* reranker 問題
+  到底是哪一層在掉分。
+
+---
+
+### 7. top-k 召回可以做多路徑
+
+你現在是單一路徑：query embedding → 向量庫 top-k → rerank。
+
+建議改成多路召回：
+
+* 向量召回：semantic description
+* OCR keyword / BM25 召回：抓經典台詞、固定用字
+* template 召回：抓模板名或模板 alias
+* emotion/tone filter：補召回
+
+最後把多路候選 merge 再 rerank。
+
+因為梗圖有些查詢其實更像：
+
+* 模板名搜尋
+* 台詞搜尋
+* 語境搜尋
+
+只靠單一路徑向量，很容易漏。
+
+---
+
+## 進階但非常值得的方向
+
+### 8. 從純文字檢索升級成多模態檢索
+
+你目前系統目標是把圖片做 OCR、影像語意分析、embedding 建立與索引儲存。
+但 README 描述的主索引核心仍然偏文字化：OCR + metadata + `embedding_text`。
+
+這對很多梗圖有效，但有一類梗圖會失準：
+
+* 沒什麼字
+* 笑點在表情
+* 笑點在構圖
+* 笑點在角色姿勢
+
+所以中長期我會建議你加：
+
+* image embedding
+* text embedding
+* late fusion
+
+這樣像 reaction meme、表情包、無字梗圖會準很多。
+
+---
+
+### 9. metadata provider 不要只產生描述，要產生「可檢索特徵」
+
+現在 metadata provider 是產出統一結構的梗圖描述。
+我會建議增加更明確的可檢索欄位，例如：
+
+* `is_reaction_meme`
+* `is_dialogue`
+* `is_comic_strip`
+* `sarcasm_level`
+* `self_deprecating`
+* `used_for_reply`
+* `used_for_post`
+* `contains_direct_insult`
+* `contains_passive_aggressive_tone`
+
+因為很多梗圖搜尋不是在找「圖描述」，而是在找「社交用途」。
+
+---
+
+## 如果只能排優先順序，我會這樣做
+
+### 第一批，先做
+
+1. **拆多向量索引，不要單一 `embedding_text`**
+2. **升級 query analyzer，輸出搜索模式與權重**
+3. **reranker 改成 relevance + reply fitness 雙目標**
+4. **補 evaluation set + hard negatives**
+
+### 第二批，再做
+
+5. **OCR 區塊化與位置特徵**
+6. **template normalization**
+7. **多路召回（vector + keyword + template）**
+
+### 第三批，進階
+
+8. **image embedding / 多模態 fusion**
+9. **更細的 social-use metadata**
+
+---
+
+## 我覺得你目前最大的瓶頸
+
+不是 UI，也不是 provider abstraction。
+你目前最大的精確度瓶頸，八成是這三件事：
+
+* **所有訊號被壓成單一 `embedding_text`**
+* **query intent 還不夠 meme-specific**
+* **rerank 還沒把「適合拿來回」這件事獨立建模**
+
+這三個一補，通常會比單純換 embedding model 更有感。
+
+你要的話，我下一則可以直接幫你把這套改成一份實作藍圖，包含：
+**資料表怎麼改、向量欄位怎麼拆、search pipeline 怎麼改、rerank prompt 怎麼寫。**

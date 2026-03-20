@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
+
+
+class SearchMode(str, Enum):
+    SEMANTIC = "semantic"
+    REPLY = "reply"
 
 
 def utc_now() -> datetime:
@@ -66,6 +72,17 @@ def compose_embedding_text(metadata: MemeMetadata) -> str:
     return "\n".join(parts)
 
 
+def compose_reply_embedding_text(metadata: MemeMetadata) -> str:
+    if not metadata.ocr_text:
+        return compose_embedding_text(metadata)
+    parts = [
+        f"梗圖文字：{metadata.ocr_text}",
+        f"梗圖文字（重複強調）：{metadata.ocr_text}",
+        f"語氣用途：{metadata.meme_usage}",
+    ]
+    return "\n".join(parts)
+
+
 class MemeAsset(BaseModel):
     image_id: str
     file_path: str
@@ -97,9 +114,11 @@ class QueryAnalysis(BaseModel):
     reply_intent: str
     query_embedding_text: str
 
-    @field_validator("emotions")
+    @field_validator("emotions", mode="before")
     @classmethod
-    def normalize_emotions(cls, values: list[str]) -> list[str]:
+    def normalize_emotions(cls, values: list[str] | str) -> list[str]:
+        if isinstance(values, str):
+            values = [v.strip() for v in values.split("、") if v.strip()] if "、" in values else [v.strip() for v in values.split(",") if v.strip()]
         return _clean_tags(values)
 
 
@@ -141,7 +160,8 @@ class SearchResponse(BaseModel):
 class SearchRequest(BaseModel):
     query: str = Field(min_length=1)
     top_n: int = Field(default=3, ge=1, le=5)
-    candidate_k: int = Field(default=8, ge=1, le=20)
+    candidate_k: int = Field(default=15, ge=1, le=30)
+    mode: SearchMode = SearchMode.REPLY
 
     @field_validator("query")
     @classmethod

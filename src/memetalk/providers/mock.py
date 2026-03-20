@@ -5,7 +5,7 @@ import math
 import re
 from pathlib import Path
 
-from memetalk.core.models import MemeMetadata, OCRExtraction, QueryAnalysis, RerankCandidate, RerankResult
+from memetalk.core.models import MemeMetadata, OCRExtraction, QueryAnalysis, RerankCandidate, RerankResult, SearchMode
 from memetalk.core.providers import EmbeddingProvider, MetadataProvider, OCRProvider, QueryAnalyzer, Reranker
 
 TOKEN_RULES = {
@@ -102,7 +102,7 @@ class MockEmbeddingProvider(EmbeddingProvider):
 class MockQueryAnalyzer(QueryAnalyzer):
     name = "mock-query-analyzer"
 
-    def analyze_query(self, query: str) -> QueryAnalysis:
+    def analyze_query(self, query: str, mode: SearchMode = SearchMode.REPLY) -> QueryAnalysis:
         emotions, intents, _styles = _derive_tags(query)
         tone = "吐槽型回覆" if "?" not in query else "帶疑問的回覆"
         reply_intent = intents[0]
@@ -130,6 +130,7 @@ class MockReranker(Reranker):
         query_analysis: QueryAnalysis,
         candidates: list[RerankCandidate],
         top_n: int,
+        mode: SearchMode = SearchMode.REPLY,
     ) -> list[RerankResult]:
         ranked: list[tuple[float, RerankResult]] = []
         query_emotions = set(query_analysis.emotions)
@@ -175,7 +176,7 @@ class UnsupportedLocalEmbeddingProvider(EmbeddingProvider):
 class UnsupportedLocalQueryAnalyzer(QueryAnalyzer):
     name = "local-unsupported-query"
 
-    def analyze_query(self, query: str) -> QueryAnalysis:
+    def analyze_query(self, query: str, mode: SearchMode = SearchMode.REPLY) -> QueryAnalysis:
         raise UnsupportedLocalCapabilityError("Local query analyzer is not implemented in the MVP.")
 
 
@@ -188,5 +189,6 @@ class UnsupportedLocalReranker(Reranker):
         query_analysis: QueryAnalysis,
         candidates: list[RerankCandidate],
         top_n: int,
+        mode: SearchMode = SearchMode.REPLY,
     ) -> list[RerankResult]:
         raise UnsupportedLocalCapabilityError("Local reranker is not implemented in the MVP.")

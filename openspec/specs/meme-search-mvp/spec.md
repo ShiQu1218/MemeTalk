@@ -37,11 +37,21 @@
 ### REQ-MVP-004 Query Understanding and Vector Retrieval
 - The system MUST expose `POST /api/v1/search`.
 - Search input MUST be analyzed into structured query fields: situation, emotion, tone, reply intent.
-- Search MUST generate a query embedding from structured query text, retrieve vector top-k candidates, and produce a top-n response.
+- Search MUST support two search modes via a `mode` field (`semantic` | `reply`, default `reply`):
+  - **semantic**: finds memes whose overall meaning is close to the query.
+  - **reply**: finds memes suitable as a witty reply to the query; OCR text weight is dominant.
+- The indexer MUST produce two embedding documents per meme:
+  - A **semantic** embedding built from the full `embedding_text` (template, scene, usage, OCR, tags).
+  - A **reply** embedding built from OCR-focused text that emphasizes the meme's actual wording.
+- At query time the system MUST filter vector candidates by the requested `search_mode`.
+- Search MUST generate a query embedding from structured query text, retrieve vector top-k candidates (default `candidate_k=15`), and produce a top-n response.
 - Search output MUST include `query_analysis`, `results`, and `provider_trace`.
 
 ### REQ-MVP-005 LLM Reranking and Reasoning
 - Retrieved candidates MUST be reranked before final output when a reranker is available.
+- Reranking MUST respect the search mode:
+  - **reply** mode: OCR text (`ocr_text`) MUST account for 90% of the ranking weight; the text must read as a witty response to the query.
+  - **semantic** mode: overall semantic similarity, scene description, and tag overlap are the primary ranking criteria.
 - If reranking fails, the system MUST fall back to vector ranking and return a non-empty fallback reason for every result.
 - Final results MUST include `image_id`, `image_url`, `reason`, `score`, `template_name`, `emotion_tags`, and `intent_tags`.
 
@@ -58,7 +68,7 @@
   - **Dashboard** (`streamlit_app.py`): system status overview showing current provider, vector backend, indexed meme count, and a health check.
   - **Settings** (`pages/1_⚙️_Settings.py`): provider selection (openai / lmstudio / mock), API key input, base URL, model configuration, vector backend, and OCR backend. Settings MUST be persisted to a TOML file (`data/memetalk_config.toml`).
   - **Index** (`pages/2_📦_Index.py`): meme folder path input, optional force-reindex toggle, progress display, and result summary (processed / indexed / skipped / failed counts with error details).
-  - **Search** (`pages/3_🔍_Search.py`): natural-language query input, query analysis display, top-N result cards with images loaded from local file paths, recommended reason text, and visible emotion and intent tags.
+  - **Search** (`pages/3_🔍_Search.py`): search mode selector (適合回覆 / 契合語意), natural-language query input, query analysis display, top-N result cards with images loaded from local file paths, recommended reason text, and visible emotion and intent tags.
 - Settings MUST support a priority chain: environment variables > TOML config file > pydantic defaults.
 - The app MUST NOT require manual environment variable configuration or a `secrets.toml` file to start.
 
@@ -67,8 +77,8 @@
   - OCR via `extract_text`
   - metadata analysis via `analyze_image`
   - embeddings via `embed_texts`
-  - query analysis via `analyze_query`
-  - reranking via `rerank`
+  - query analysis via `analyze_query(query, mode)`
+  - reranking via `rerank(query, query_analysis, candidates, top_n, mode)`
 - OpenAI MUST be the default cloud provider configuration.
 - The OpenAI-backed provider path MUST support OpenAI-compatible chat, vision, and embedding endpoints through configurable base URL and model settings.
 - The repository MUST provide a documented local provider configuration for LM Studio without changing application code.

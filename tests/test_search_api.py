@@ -7,7 +7,7 @@ from memetalk.api.main import create_app
 from memetalk.app.container import AppContainer, build_container
 from memetalk.app.search import FALLBACK_REASON
 from memetalk.config import AppSettings
-from memetalk.core.models import QueryAnalysis, RerankCandidate, RerankResult
+from memetalk.core.models import QueryAnalysis, RerankCandidate, RerankResult, SearchMode
 from memetalk.core.providers import ProviderBundle, Reranker
 
 
@@ -42,6 +42,7 @@ class BrokenReranker(Reranker):
         query_analysis: QueryAnalysis,
         candidates: list[RerankCandidate],
         top_n: int,
+        mode: SearchMode = SearchMode.REPLY,
     ) -> list[RerankResult]:
         raise RuntimeError("rerank unavailable")
 

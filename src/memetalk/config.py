@@ -34,7 +34,7 @@ class AppSettings(BaseModel):
     lmstudio_chat_model: str | None = None
     lmstudio_vision_model: str | None = None
     lmstudio_embedding_model: str | None = None
-    search_candidate_k_default: int = 8
+    search_candidate_k_default: int = 15
     search_top_n_default: int = 3
     meme_folder: str = ""
 
@@ -58,7 +58,7 @@ class AppSettings(BaseModel):
             lmstudio_chat_model=os.getenv("MEMETALK_LMSTUDIO_CHAT_MODEL"),
             lmstudio_vision_model=os.getenv("MEMETALK_LMSTUDIO_VISION_MODEL"),
             lmstudio_embedding_model=os.getenv("MEMETALK_LMSTUDIO_EMBEDDING_MODEL"),
-            search_candidate_k_default=_env_int("MEMETALK_SEARCH_CANDIDATE_K", 8),
+            search_candidate_k_default=_env_int("MEMETALK_SEARCH_CANDIDATE_K", 15),
             search_top_n_default=_env_int("MEMETALK_SEARCH_TOP_N", 3),
         )
 

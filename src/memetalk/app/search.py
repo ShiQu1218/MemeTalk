@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from memetalk.core.models import QueryAnalysis, RerankCandidate, SearchResponse, SearchResult
+from memetalk.core.models import QueryAnalysis, RerankCandidate, SearchMode, SearchResponse, SearchResult
 from memetalk.core.providers import ProviderBundle
 from memetalk.storage.sqlite_store import SQLiteMemeRepository
 from memetalk.storage.vector_store import VectorStore
@@ -21,10 +21,10 @@ class SearchService:
         self.providers = providers
         self.api_base_url = api_base_url.rstrip("/")
 
-    def search(self, query: str, top_n: int, candidate_k: int) -> SearchResponse:
-        query_analysis = self.providers.query_analyzer.analyze_query(query)
+    def search(self, query: str, top_n: int, candidate_k: int, mode: SearchMode = SearchMode.REPLY) -> SearchResponse:
+        query_analysis = self.providers.query_analyzer.analyze_query(query, mode=mode)
         query_vector = self.providers.embedding_provider.embed_texts([query_analysis.query_embedding_text])[0]
-        vector_matches = self.vector_store.query(query_vector, top_k=max(top_n, candidate_k))
+        vector_matches = self.vector_store.query(query_vector, top_k=max(top_n, candidate_k), search_mode=mode.value)
         candidates: list[RerankCandidate] = []
         for match in vector_matches:
             asset = self.repository.get_asset_by_id(match.image_id)
@@ -38,7 +38,7 @@ class SearchService:
                     metadata=asset.metadata,
                 )
             )
-        results = self._rerank_or_fallback(query, query_analysis, candidates, top_n)
+        results = self._rerank_or_fallback(query, query_analysis, candidates, top_n, mode=mode)
         return SearchResponse(query_analysis=query_analysis, results=results, provider_trace=self.providers.trace())
 
     def _rerank_or_fallback(
@@ -47,11 +47,12 @@ class SearchService:
         query_analysis: QueryAnalysis,
         candidates: list[RerankCandidate],
         top_n: int,
+        mode: SearchMode = SearchMode.REPLY,
     ) -> list[SearchResult]:
         if not candidates:
             return []
         try:
-            reranked = self.providers.reranker.rerank(query, query_analysis, candidates, top_n)
+            reranked = self.providers.reranker.rerank(query, query_analysis, candidates, top_n, mode=mode)
             reranked_by_id = {item.image_id: item for item in reranked}
             ordered_candidates = [candidate for candidate in candidates if candidate.image_id in reranked_by_id]
             ordered_candidates.sort(key=lambda item: reranked_by_id[item.image_id].score, reverse=True)

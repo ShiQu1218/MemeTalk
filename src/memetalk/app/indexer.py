@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from uuid import uuid4
 
@@ -11,6 +13,7 @@ from memetalk.core.models import (
     MemeAsset,
     OCRExtraction,
     compose_embedding_text,
+    compose_reply_embedding_text,
     utc_now,
 )
 from memetalk.core.providers import ProviderBundle
@@ -18,6 +21,20 @@ from memetalk.storage.sqlite_store import SQLiteMemeRepository
 from memetalk.storage.vector_store import VectorStore
 
 SUPPORTED_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
+
+
+@dataclass(slots=True)
+class IndexProgress:
+    total: int
+    current: int
+    file_name: str
+    step: str  # "scan", "sha256", "skip", "ocr", "metadata", "embedding", "store", "done", "error"
+    indexed: int = 0
+    skipped: int = 0
+    failed: int = 0
+
+
+ProgressCallback = Callable[[IndexProgress], None]
 
 
 def _sha256_file(path: Path) -> str:
@@ -39,7 +56,12 @@ class IndexingService:
         self.vector_store = vector_store
         self.providers = providers
 
-    def build_index(self, source_dir: Path, reindex: bool = False) -> IndexRunSummary:
+    def build_index(
+        self,
+        source_dir: Path,
+        reindex: bool = False,
+        on_progress: ProgressCallback | None = None,
+    ) -> IndexRunSummary:
         run = IndexRunSummary(
             run_id=str(uuid4()),
             source_dir=str(source_dir.resolve()),
@@ -49,19 +71,50 @@ class IndexingService:
         image_paths = sorted(
             path for path in source_dir.rglob("*") if path.is_file() and path.suffix.lower() in SUPPORTED_IMAGE_SUFFIXES
         )
+        total = len(image_paths)
+
+        def _report(file_name: str, step: str) -> None:
+            if on_progress is not None:
+                on_progress(IndexProgress(
+                    total=total,
+                    current=run.processed_count,
+                    file_name=file_name,
+                    step=step,
+                    indexed=run.indexed_count,
+                    skipped=run.skipped_count,
+                    failed=run.failed_count,
+                ))
+
+        _report("", "scan")
+
         for image_path in image_paths:
             run.processed_count += 1
+            name = image_path.name
+
+            _report(name, "sha256")
             file_sha256 = _sha256_file(image_path)
+
             if not reindex and self.repository.get_asset_by_sha256(file_sha256):
                 run.skipped_count += 1
+                _report(name, "skip")
                 continue
             try:
+                _report(name, "ocr")
                 ocr_result = self._safe_extract_text(image_path)
+
+                _report(name, "metadata")
                 metadata = self.providers.metadata_provider.analyze_image(image_path, ocr_result)
                 metadata.has_text = ocr_result.has_text
                 metadata.ocr_text = ocr_result.text
+
+                _report(name, "embedding")
                 metadata.embedding_text = compose_embedding_text(metadata)
-                embedding = self.providers.embedding_provider.embed_texts([metadata.embedding_text])[0]
+                reply_embedding_text = compose_reply_embedding_text(metadata)
+                semantic_embedding, reply_embedding = self.providers.embedding_provider.embed_texts(
+                    [metadata.embedding_text, reply_embedding_text]
+                )
+
+                _report(name, "store")
                 asset = MemeAsset(
                     image_id=file_sha256[:16],
                     file_path=str(image_path.resolve()),
@@ -69,25 +122,34 @@ class IndexingService:
                     metadata=metadata,
                 )
                 self.repository.upsert_asset(asset)
+                base_metadata = {
+                    "file_path": asset.file_path,
+                    "template_name": metadata.template_name or "",
+                    "emotion_tags": ",".join(metadata.emotion_tags),
+                    "intent_tags": ",".join(metadata.intent_tags),
+                }
                 self.vector_store.upsert(
                     [
                         EmbeddingDocument(
                             document_id=asset.image_id,
                             text=metadata.embedding_text,
-                            vector=embedding,
-                            metadata={
-                                "file_path": asset.file_path,
-                                "template_name": metadata.template_name or "",
-                                "emotion_tags": ",".join(metadata.emotion_tags),
-                                "intent_tags": ",".join(metadata.intent_tags),
-                            },
-                        )
+                            vector=semantic_embedding,
+                            metadata={**base_metadata, "search_mode": "semantic"},
+                        ),
+                        EmbeddingDocument(
+                            document_id=f"{asset.image_id}:reply",
+                            text=reply_embedding_text,
+                            vector=reply_embedding,
+                            metadata={**base_metadata, "search_mode": "reply"},
+                        ),
                     ]
                 )
                 run.indexed_count += 1
+                _report(name, "done")
             except Exception as exc:
                 run.failed_count += 1
                 run.errors.append(IndexErrorRecord(file_path=str(image_path.resolve()), error=str(exc)))
+                _report(name, "error")
         run.completed_at = utc_now()
         run.status = "completed_with_errors" if run.failed_count else "completed"
         self.repository.save_index_run(run)

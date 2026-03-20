@@ -4,6 +4,7 @@ import streamlit as st
 
 from memetalk.app.container import build_container
 from memetalk.app.settings_io import load_settings
+from memetalk.core.models import SearchMode
 
 st.set_page_config(page_title="MemeTalk - 搜尋", page_icon="🔍", layout="wide")
 st.title("🔍 搜尋梗圖")
@@ -16,6 +17,10 @@ def _get_container():
         st.session_state["container"] = build_container(settings)
     return st.session_state["container"]
 
+
+_MODE_OPTIONS = {"適合回覆": SearchMode.REPLY, "契合語意": SearchMode.SEMANTIC}
+mode_label = st.radio("搜尋模式", list(_MODE_OPTIONS.keys()), horizontal=True)
+search_mode = _MODE_OPTIONS[mode_label]
 
 query = st.text_area("想回什麼情境？", height=120, placeholder="例如：朋友說快到了但其實根本還沒出門")
 
@@ -30,6 +35,7 @@ if st.button("搜尋梗圖", type="primary", use_container_width=True):
                     query=query,
                     top_n=container.settings.search_top_n_default,
                     candidate_k=container.settings.search_candidate_k_default,
+                    mode=search_mode,
                 )
 
             st.subheader("查詢分析")

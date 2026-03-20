@@ -22,8 +22,12 @@ class VectorStore(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def query(self, vector: list[float], top_k: int) -> list[SearchMatch]:
+    def query(self, vector: list[float], top_k: int, search_mode: str | None = None) -> list[SearchMatch]:
         raise NotImplementedError
+
+
+def _extract_image_id(document_id: str) -> str:
+    return document_id.split(":")[0]
 
 
 class InMemoryVectorStore(VectorStore):
@@ -34,14 +38,15 @@ class InMemoryVectorStore(VectorStore):
         for document in documents:
             self._documents[document.document_id] = document
 
-    def query(self, vector: list[float], top_k: int) -> list[SearchMatch]:
+    def query(self, vector: list[float], top_k: int, search_mode: str | None = None) -> list[SearchMatch]:
         scored = [
             SearchMatch(
-                image_id=document.document_id,
+                image_id=_extract_image_id(document.document_id),
                 score=_cosine_similarity(vector, document.vector),
                 metadata=document.metadata,
             )
             for document in self._documents.values()
+            if search_mode is None or document.metadata.get("search_mode") == search_mode
         ]
         scored.sort(key=lambda item: item.score, reverse=True)
         return scored[:top_k]
@@ -79,18 +84,21 @@ class ChromaVectorStore(VectorStore):
             metadatas=[document.metadata for document in documents],
         )
 
-    def query(self, vector: list[float], top_k: int) -> list[SearchMatch]:
+    def query(self, vector: list[float], top_k: int, search_mode: str | None = None) -> list[SearchMatch]:
         collection = self._get_collection()
-        response = collection.query(
-            query_embeddings=[vector],
-            n_results=top_k,
-            include=["distances", "metadatas"],
-        )
+        query_kwargs: dict = {
+            "query_embeddings": [vector],
+            "n_results": top_k,
+            "include": ["distances", "metadatas"],
+        }
+        if search_mode is not None:
+            query_kwargs["where"] = {"search_mode": search_mode}
+        response = collection.query(**query_kwargs)
         ids = response.get("ids", [[]])[0]
         distances = response.get("distances", [[]])[0]
         metadatas = response.get("metadatas", [[]])[0]
         matches: list[SearchMatch] = []
-        for image_id, distance, metadata in zip(ids, distances, metadatas, strict=False):
+        for doc_id, distance, metadata in zip(ids, distances, metadatas, strict=False):
             score = 1.0 - float(distance or 0.0)
-            matches.append(SearchMatch(image_id=image_id, score=score, metadata=metadata or {}))
+            matches.append(SearchMatch(image_id=_extract_image_id(doc_id), score=score, metadata=metadata or {}))
         return matches

@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 
-from memetalk.core.models import OCRExtraction, QueryAnalysis, RerankCandidate, RerankResult
+from memetalk.core.models import OCRExtraction, QueryAnalysis, RerankCandidate, RerankResult, SearchMode
 
 
 class OCRProvider(ABC):
@@ -35,7 +35,7 @@ class QueryAnalyzer(ABC):
     name: str
 
     @abstractmethod
-    def analyze_query(self, query: str) -> QueryAnalysis:
+    def analyze_query(self, query: str, mode: SearchMode = SearchMode.REPLY) -> QueryAnalysis:
         raise NotImplementedError
 
 
@@ -49,6 +49,7 @@ class Reranker(ABC):
         query_analysis: QueryAnalysis,
         candidates: list[RerankCandidate],
         top_n: int,
+        mode: SearchMode = SearchMode.REPLY,
     ) -> list[RerankResult]:
         raise NotImplementedError
 

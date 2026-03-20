@@ -10,7 +10,7 @@ from typing import Any
 from PIL import Image
 
 from memetalk.config import AppSettings
-from memetalk.core.models import MemeMetadata, OCRExtraction, QueryAnalysis, RerankCandidate, RerankResult
+from memetalk.core.models import MemeMetadata, OCRExtraction, QueryAnalysis, RerankCandidate, RerankResult, SearchMode
 from memetalk.core.providers import EmbeddingProvider, MetadataProvider, QueryAnalyzer, Reranker
 
 JSON_COMPLETION_MAX_ATTEMPTS = 3
@@ -192,12 +192,21 @@ class CompatibleQueryAnalyzer(_OpenAICompatibleBase, QueryAnalyzer):
         super().__init__(profile)
         self.name = f"{profile.label}-query-analyzer"
 
-    def analyze_query(self, query: str) -> QueryAnalysis:
-        prompt = (
-            "你是繁體中文的梗圖查詢分析器。"
-            "請把使用者輸入分析成 JSON，欄位為 situation, emotions, tone, reply_intent, query_embedding_text。"
-            "query_embedding_text 必須是適合向量搜尋的繁體中文敘述，必須保留查詢中的關鍵名詞和具體用語，不要過度抽象化。"
-        )
+    def analyze_query(self, query: str, mode: SearchMode = SearchMode.REPLY) -> QueryAnalysis:
+        if mode == SearchMode.REPLY:
+            prompt = (
+                "你是繁體中文的梗圖查詢分析器，目前處於「回覆模式」。"
+                "使用者輸入的是一句話，他想找到一張梗圖來當作回覆。"
+                "請把使用者輸入分析成 JSON，欄位為 situation, emotions, tone, reply_intent, query_embedding_text。"
+                "query_embedding_text 必須描述「適合回覆這句話的梗圖會包含什麼文字或表達什麼意思」，"
+                "而不是重述使用者的輸入。重點放在回應的語氣、態度和可能的文字內容。"
+            )
+        else:
+            prompt = (
+                "你是繁體中文的梗圖查詢分析器。"
+                "請把使用者輸入分析成 JSON，欄位為 situation, emotions, tone, reply_intent, query_embedding_text。"
+                "query_embedding_text 必須是適合向量搜尋的繁體中文敘述，必須保留查詢中的關鍵名詞和具體用語，不要過度抽象化。"
+            )
         data = self._json_completion(prompt, query, self.profile.chat_model)
         return QueryAnalysis(
             original_query=query,
@@ -252,6 +261,7 @@ class CompatibleReranker(_OpenAICompatibleBase, Reranker):
         query_analysis: QueryAnalysis,
         candidates: list[RerankCandidate],
         top_n: int,
+        mode: SearchMode = SearchMode.REPLY,
     ) -> list[RerankResult]:
         serialized = [
             {
@@ -266,13 +276,22 @@ class CompatibleReranker(_OpenAICompatibleBase, Reranker):
             }
             for candidate in candidates
         ]
-        prompt = (
-            "你是梗圖搜尋 reranker。請依照 query 與候選 metadata 選出最適合回覆的結果。"
-            "重要：梗圖上的實際文字（ocr_text）與查詢情境的匹配度應該是最關鍵的排序依據。"
-            "如果候選梗圖的 ocr_text 包含與查詢語境直接相關的回應，應給予顯著更高的分數。"
-            "回傳 JSON 物件，欄位為 results，內容是陣列，每個元素有 image_id, score, reason。"
-            "reason 必須是繁體中文且解釋語氣與情境。"
-        )
+        if mode == SearchMode.REPLY:
+            prompt = (
+                "你是梗圖搜尋 reranker，目前處於「回覆模式」。"
+                "評分標準：梗圖上的實際文字（ocr_text）佔 90% 權重，其他 metadata 佔 10%。"
+                "ocr_text 必須讀起來像是對 query 的機智回應、反駁或吐槽，才能得高分。"
+                "如果 ocr_text 只是主題相關但不構成回覆，分數應該低。"
+                "回傳 JSON 物件，欄位為 results，內容是陣列，每個元素有 image_id, score, reason。"
+                "reason 必須是繁體中文且解釋語氣與情境。"
+            )
+        else:
+            prompt = (
+                "你是梗圖搜尋 reranker。請依照 query 與候選 metadata 選出語意最相近的結果。"
+                "重要：梗圖的整體語意、情境描述與情緒標籤的匹配度是最關鍵的排序依據。"
+                "回傳 JSON 物件，欄位為 results，內容是陣列，每個元素有 image_id, score, reason。"
+                "reason 必須是繁體中文且解釋語氣與情境。"
+            )
         data = self._json_completion(
             prompt,
             json.dumps(
