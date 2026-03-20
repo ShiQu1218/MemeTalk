@@ -9,6 +9,7 @@ from memetalk.app.search import FALLBACK_REASON
 from memetalk.config import AppSettings
 from memetalk.core.models import QueryAnalysis, RerankCandidate, RerankResult, SearchMode
 from memetalk.core.providers import ProviderBundle, Reranker
+from memetalk.core.retrieval import default_retrieval_weights
 
 
 def _create_image(path: Path, color: tuple[int, int, int]) -> None:
@@ -61,9 +62,10 @@ def test_health_and_search_endpoints_return_expected_shape(tmp_path: Path) -> No
     assert health_response.json()["status"] == "ok"
     assert search_response.status_code == 200
     payload = search_response.json()
-    assert set(payload.keys()) == {"query_analysis", "results", "provider_trace"}
+    assert set(payload.keys()) == {"query_analysis", "results", "provider_trace", "search_trace"}
     assert len(payload["results"]) == 3
-    assert {"image_id", "image_url", "reason", "score", "template_name", "emotion_tags", "intent_tags"} <= set(
+    assert {"routes_used", "candidate_counts", "rerank_strategy"} <= set(payload["search_trace"].keys())
+    assert {"image_id", "image_url", "reason", "score", "template_name", "emotion_tags", "intent_tags", "debug"} <= set(
         payload["results"][0].keys()
     )
 
@@ -102,5 +104,7 @@ def test_search_falls_back_when_reranker_fails(tmp_path: Path) -> None:
     )
 
     assert response.status_code == 200
-    reasons = [item["reason"] for item in response.json()["results"]]
+    payload = response.json()
+    reasons = [item["reason"] for item in payload["results"]]
     assert reasons and all(reason == FALLBACK_REASON for reason in reasons)
+    assert payload["search_trace"]["rerank_strategy"] == "deterministic_fallback"

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from memetalk.core.models import OCRExtraction
+from memetalk.core.models import OCRExtraction, OCRStatus
 from memetalk.core.providers import OCRProvider
 
 
@@ -25,9 +25,16 @@ class PaddleOCRProvider(OCRProvider):
     def extract_text(self, image_path: Path) -> OCRExtraction:
         result = self._get_client().ocr(str(image_path), cls=True)
         lines: list[str] = []
+        confidences: list[float] = []
         for group in result or []:
             for item in group or []:
                 if item and len(item) > 1 and item[1]:
                     lines.append(item[1][0].strip())
+                    try:
+                        confidences.append(float(item[1][1]))
+                    except (TypeError, ValueError, IndexError):
+                        continue
         text = " ".join(line for line in lines if line)
-        return OCRExtraction(text=text, has_text=bool(text), raw_lines=lines)
+        status = OCRStatus.SUCCESS if text else OCRStatus.EMPTY
+        confidence = (sum(confidences) / len(confidences)) if confidences else None
+        return OCRExtraction(text=text, has_text=bool(text), raw_lines=lines, status=status, confidence=confidence)

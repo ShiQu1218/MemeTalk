@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from memetalk.app.evaluation import EvaluationService
 from memetalk.app.indexer import IndexingService
 from memetalk.app.search import SearchService
 from memetalk.config import AppSettings
@@ -19,6 +20,7 @@ class AppContainer:
     providers: ProviderBundle
     indexing_service: IndexingService
     search_service: SearchService
+    evaluation_service: EvaluationService
 
 
 def build_vector_store(settings: AppSettings) -> VectorStore:
@@ -36,6 +38,7 @@ def build_container(settings: AppSettings | None = None) -> AppContainer:
     providers = build_provider_bundle(active_settings)
     indexing_service = IndexingService(repository, vector_store, providers)
     search_service = SearchService(repository, vector_store, providers, active_settings.api_base_url)
+    evaluation_service = EvaluationService(search_service, active_settings.search_candidate_k_default)
     return AppContainer(
         settings=active_settings,
         repository=repository,
@@ -43,4 +46,5 @@ def build_container(settings: AppSettings | None = None) -> AppContainer:
         providers=providers,
         indexing_service=indexing_service,
         search_service=search_service,
+        evaluation_service=evaluation_service,
     )

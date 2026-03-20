@@ -30,6 +30,10 @@ class EmbeddingProvider(ABC):
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
         raise NotImplementedError
 
+    @abstractmethod
+    def index_identity(self) -> str:
+        raise NotImplementedError
+
 
 class QueryAnalyzer(ABC):
     name: str

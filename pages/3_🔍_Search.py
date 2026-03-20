@@ -45,6 +45,15 @@ if st.button("搜尋梗圖", type="primary", use_container_width=True):
             st.write(f"**語氣：** {analysis.tone}")
             st.write(f"**回覆意圖：** {analysis.reply_intent}")
             st.write(f"**搜尋文字：** {analysis.query_embedding_text}")
+            st.write(f"**查詢詞：** {'、'.join(analysis.query_terms) or '無'}")
+            st.write(f"**模板提示：** {'、'.join(analysis.template_hints) or '無'}")
+
+            st.subheader("搜尋追蹤")
+            st.write(f"**路由：** {'、'.join(response.search_trace.routes_used) or '無'}")
+            st.write(f"**候選數：** {response.search_trace.candidate_counts}")
+            st.write(f"**Rerank 策略：** {response.search_trace.rerank_strategy}")
+            if response.search_trace.degraded_routes:
+                st.warning(f"降級路由：{'、'.join(response.search_trace.degraded_routes)}")
 
             st.subheader("推薦結果")
             if not response.results:
@@ -64,5 +73,8 @@ if st.button("搜尋梗圖", type="primary", use_container_width=True):
                         st.caption(f"模板：{result.template_name or '未知模板'}")
                         st.write("情緒標籤：", "、".join(result.emotion_tags) or "無")
                         st.write("意圖標籤：", "、".join(result.intent_tags) or "無")
+                        st.write("候選來源：", "、".join(result.debug.candidate_sources) or "無")
+                        if result.debug.degradation_flags:
+                            st.caption("降級訊號：" + "、".join(result.debug.degradation_flags))
         except Exception as e:
             st.error(f"搜尋失敗：{e}")

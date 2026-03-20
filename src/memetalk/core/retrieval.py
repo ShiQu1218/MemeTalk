@@ -1,0 +1,119 @@
+from __future__ import annotations
+
+import re
+import unicodedata
+from collections.abc import Iterable
+
+from memetalk.core.models import MemeMetadata, OCRStatus, QueryAnalysis, RetrievalWeights, SearchMode
+
+_CAMEL_CASE_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
+_NON_WORD = re.compile(r"[^\w\u4e00-\u9fff]+", re.UNICODE)
+
+
+def normalize_text(value: str) -> str:
+    normalized = unicodedata.normalize("NFKC", value or "").strip()
+    normalized = _CAMEL_CASE_BOUNDARY.sub(" ", normalized)
+    normalized = normalized.replace("_", " ").replace("-", " ")
+    normalized = _NON_WORD.sub(" ", normalized)
+    return " ".join(normalized.lower().split())
+
+
+def split_terms(value: str) -> list[str]:
+    normalized = normalize_text(value)
+    if not normalized:
+        return []
+    return normalized.split()
+
+
+def normalize_template_fields(template_name: str | None) -> tuple[str, list[str], str]:
+    raw_name = (template_name or "").strip()
+    if not raw_name:
+        return "", [], ""
+    normalized = normalize_text(raw_name)
+    tokens = normalized.split()
+    canonical_id = "-".join(tokens) if tokens else normalized
+    aliases = [raw_name]
+    if tokens:
+        aliases.extend([" ".join(tokens), "_".join(tokens), "-".join(tokens)])
+    deduped = list(dict.fromkeys(alias for alias in aliases if alias))
+    family = tokens[0] if tokens else raw_name
+    return canonical_id, deduped, family
+
+
+def build_keyword_text(metadata: MemeMetadata) -> str:
+    parts = [
+        metadata.template_name or "",
+        metadata.template_canonical_id,
+        " ".join(metadata.template_aliases),
+        metadata.template_family,
+        metadata.ocr_text,
+        metadata.scene_description,
+        metadata.meme_usage,
+        " ".join(metadata.emotion_tags),
+        " ".join(metadata.intent_tags),
+        " ".join(metadata.style_tags),
+        metadata.ocr_status.value,
+    ]
+    return "\n".join(part for part in parts if part).strip()
+
+
+def build_semantic_query_text(query_analysis: QueryAnalysis) -> str:
+    return "\n".join(
+        [
+            f"情境：{query_analysis.situation}",
+            f"情緒：{'、'.join(query_analysis.emotions) or '無'}",
+            f"語氣：{query_analysis.tone}",
+            f"回覆意圖：{query_analysis.reply_intent}",
+            f"語意查詢：{query_analysis.query_embedding_text}",
+        ]
+    )
+
+
+def build_reply_query_text(query_analysis: QueryAnalysis) -> str:
+    query_terms = "、".join(query_analysis.query_terms) or query_analysis.original_query
+    return "\n".join(
+        [
+            f"適合回覆的字句：{query_terms}",
+            f"語氣：{query_analysis.tone}",
+            f"回覆意圖：{query_analysis.reply_intent}",
+            f"模板提示：{'、'.join(query_analysis.template_hints) or '無'}",
+        ]
+    )
+
+
+def default_retrieval_weights(mode: SearchMode) -> RetrievalWeights:
+    if mode == SearchMode.REPLY:
+        return RetrievalWeights(semantic=0.2, reply_text=1.15, keyword=1.3, template=1.0)
+    return RetrievalWeights(semantic=1.0, reply_text=0.35, keyword=0.6, template=0.5)
+
+
+def lexical_overlap_score(terms: Iterable[str], haystack: str) -> float:
+    cleaned_terms = [term.strip().lower() for term in terms if term.strip()]
+    if not cleaned_terms:
+        return 0.0
+    normalized_haystack = unicodedata.normalize("NFKC", haystack or "").lower()
+    matches = sum(1 for term in cleaned_terms if term in normalized_haystack)
+    return matches / len(cleaned_terms)
+
+
+def template_hint_score(template_hints: Iterable[str], metadata: MemeMetadata) -> float:
+    searchable = " ".join([metadata.template_name or "", metadata.template_canonical_id, *metadata.template_aliases]).lower()
+    hints = [hint.strip().lower() for hint in template_hints if hint.strip()]
+    if not hints:
+        return 0.0
+    matches = sum(1 for hint in hints if hint in searchable)
+    return matches / len(hints)
+
+
+def ocr_penalty(metadata: MemeMetadata, mode: SearchMode) -> float:
+    if mode != SearchMode.REPLY:
+        return 0.0
+    if metadata.ocr_status == OCRStatus.SUCCESS:
+        return 0.0
+    if metadata.ocr_status == OCRStatus.EMPTY:
+        return 0.28
+    return 0.4
+
+
+def build_index_version(identity: str, vector_length: int, channel: str) -> str:
+    return f"{identity}|dim={vector_length}|channel={channel}"

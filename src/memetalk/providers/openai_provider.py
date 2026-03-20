@@ -12,6 +12,7 @@ from PIL import Image
 from memetalk.config import AppSettings
 from memetalk.core.models import MemeMetadata, OCRExtraction, QueryAnalysis, RerankCandidate, RerankResult, SearchMode
 from memetalk.core.providers import EmbeddingProvider, MetadataProvider, QueryAnalyzer, Reranker
+from memetalk.core.retrieval import default_retrieval_weights
 
 JSON_COMPLETION_MAX_ATTEMPTS = 3
 
@@ -186,6 +187,9 @@ class CompatibleEmbeddingProvider(_OpenAICompatibleBase, EmbeddingProvider):
             raise self._translate_provider_error(exc, "embedding") from exc
         return [item.embedding for item in response.data]
 
+    def index_identity(self) -> str:
+        return f"{self.name}:{self.profile.embedding_model}"
+
 
 class CompatibleQueryAnalyzer(_OpenAICompatibleBase, QueryAnalyzer):
     def __init__(self, profile: CompatibleProviderProfile) -> None:
@@ -197,15 +201,23 @@ class CompatibleQueryAnalyzer(_OpenAICompatibleBase, QueryAnalyzer):
             prompt = (
                 "你是繁體中文的梗圖查詢分析器，目前處於「回覆模式」。"
                 "使用者輸入的是一句話，他想找到一張梗圖來當作回覆。"
-                "請把使用者輸入分析成 JSON，欄位為 situation, emotions, tone, reply_intent, query_embedding_text。"
+                "請把使用者輸入分析成 JSON，欄位為 situation, emotions, tone, reply_intent, "
+                "query_embedding_text, query_terms, template_hints, retrieval_weights。"
                 "query_embedding_text 必須描述「適合回覆這句話的梗圖會包含什麼文字或表達什麼意思」，"
                 "而不是重述使用者的輸入。重點放在回應的語氣、態度和可能的文字內容。"
+                "query_terms 請列出適合做關鍵字檢索的短詞或短句。"
+                "template_hints 只放使用者明確提到或暗示的模板線索。"
+                "retrieval_weights 必須包含 semantic, reply_text, keyword, template 四個 0 到 1.5 的數字。"
             )
         else:
             prompt = (
                 "你是繁體中文的梗圖查詢分析器。"
-                "請把使用者輸入分析成 JSON，欄位為 situation, emotions, tone, reply_intent, query_embedding_text。"
+                "請把使用者輸入分析成 JSON，欄位為 situation, emotions, tone, reply_intent, "
+                "query_embedding_text, query_terms, template_hints, retrieval_weights。"
                 "query_embedding_text 必須是適合向量搜尋的繁體中文敘述，必須保留查詢中的關鍵名詞和具體用語，不要過度抽象化。"
+                "query_terms 請列出適合做關鍵字檢索的短詞或短句。"
+                "template_hints 只放使用者明確提到或暗示的模板線索。"
+                "retrieval_weights 必須包含 semantic, reply_text, keyword, template 四個 0 到 1.5 的數字。"
             )
         data = self._json_completion(prompt, query, self.profile.chat_model)
         return QueryAnalysis(
@@ -215,6 +227,9 @@ class CompatibleQueryAnalyzer(_OpenAICompatibleBase, QueryAnalyzer):
             tone=data["tone"],
             reply_intent=data["reply_intent"],
             query_embedding_text=data["query_embedding_text"],
+            query_terms=data.get("query_terms", []),
+            template_hints=data.get("template_hints", []),
+            retrieval_weights=data.get("retrieval_weights", default_retrieval_weights(mode).model_dump()),
         )
 
 
@@ -263,31 +278,56 @@ class CompatibleReranker(_OpenAICompatibleBase, Reranker):
         top_n: int,
         mode: SearchMode = SearchMode.REPLY,
     ) -> list[RerankResult]:
-        serialized = [
-            {
-                "image_id": candidate.image_id,
-                "vector_score": candidate.vector_score,
-                "template_name": candidate.metadata.template_name,
-                "scene_description": candidate.metadata.scene_description,
-                "meme_usage": candidate.metadata.meme_usage,
-                "ocr_text": candidate.metadata.ocr_text,
-                "emotion_tags": candidate.metadata.emotion_tags,
-                "intent_tags": candidate.metadata.intent_tags,
-            }
-            for candidate in candidates
-        ]
+        if mode == SearchMode.REPLY:
+            serialized = [
+                {
+                    "image_id": candidate.image_id,
+                    "vector_score": candidate.vector_score,
+                    "template_name": candidate.metadata.template_name,
+                    "meme_usage": candidate.metadata.meme_usage,
+                    "ocr_text": candidate.metadata.ocr_text,
+                    "ocr_status": candidate.metadata.ocr_status,
+                    "intent_tags": candidate.metadata.intent_tags,
+                    "candidate_sources": candidate.candidate_sources,
+                    "feature_scores": candidate.feature_scores,
+                    "degradation_flags": candidate.degradation_flags,
+                    "deterministic_score": candidate.deterministic_score,
+                }
+                for candidate in candidates
+            ]
+        else:
+            serialized = [
+                {
+                    "image_id": candidate.image_id,
+                    "vector_score": candidate.vector_score,
+                    "template_name": candidate.metadata.template_name,
+                    "scene_description": candidate.metadata.scene_description,
+                    "meme_usage": candidate.metadata.meme_usage,
+                    "ocr_text": candidate.metadata.ocr_text,
+                    "ocr_status": candidate.metadata.ocr_status,
+                    "emotion_tags": candidate.metadata.emotion_tags,
+                    "intent_tags": candidate.metadata.intent_tags,
+                    "candidate_sources": candidate.candidate_sources,
+                    "feature_scores": candidate.feature_scores,
+                    "degradation_flags": candidate.degradation_flags,
+                    "deterministic_score": candidate.deterministic_score,
+                }
+                for candidate in candidates
+            ]
         if mode == SearchMode.REPLY:
             prompt = (
                 "你是梗圖搜尋 reranker，目前處於「回覆模式」。"
-                "評分標準：梗圖上的實際文字（ocr_text）佔 90% 權重，其他 metadata 佔 10%。"
-                "ocr_text 必須讀起來像是對 query 的機智回應、反駁或吐槽，才能得高分。"
-                "如果 ocr_text 只是主題相關但不構成回覆，分數應該低。"
+                "先尊重 deterministic_score 與 feature_scores 的排序，再判斷哪張梗圖最適合當作回覆。"
+                "評分重點是 ocr_text 是否構成機智回應、反駁或吐槽；"
+                "若 ocr_status 不是 success，除非其他訊號特別強，否則應降低分數。"
+                "背景或場景資訊只可當作次要 tie-break，不可蓋過台詞本身。"
                 "回傳 JSON 物件，欄位為 results，內容是陣列，每個元素有 image_id, score, reason。"
                 "reason 必須是繁體中文且解釋語氣與情境。"
             )
         else:
             prompt = (
                 "你是梗圖搜尋 reranker。請依照 query 與候選 metadata 選出語意最相近的結果。"
+                "先尊重 deterministic_score 與 feature_scores 的排序，再判斷哪張梗圖最符合語意。"
                 "重要：梗圖的整體語意、情境描述與情緒標籤的匹配度是最關鍵的排序依據。"
                 "回傳 JSON 物件，欄位為 results，內容是陣列，每個元素有 image_id, score, reason。"
                 "reason 必須是繁體中文且解釋語氣與情境。"

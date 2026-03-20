@@ -21,7 +21,30 @@ def _build_settings(tmp_path: Path) -> AppSettings:
     )
 
 
-def test_index_build_skips_unchanged_files_and_tracks_has_text(tmp_path: Path) -> None:
+def test_index_build_tracks_ocr_success_empty_and_failed_statuses(tmp_path: Path) -> None:
+    source_dir = tmp_path / "memes"
+    source_dir.mkdir()
+    _create_image(source_dir / "friend_text.png", (255, 0, 0))
+    _create_image(source_dir / "reaction_face.png", (0, 255, 0))
+    _create_image(source_dir / "caption_ocrfail.png", (0, 0, 255))
+
+    container = build_container(_build_settings(tmp_path))
+    summary = container.indexing_service.build_index(source_dir)
+
+    success_asset = container.repository.get_asset_by_sha256(_sha256_file(source_dir / "friend_text.png"))
+    empty_asset = container.repository.get_asset_by_sha256(_sha256_file(source_dir / "reaction_face.png"))
+    failed_asset = container.repository.get_asset_by_sha256(_sha256_file(source_dir / "caption_ocrfail.png"))
+
+    assert summary.indexed_count == 3
+    assert summary.failed_count == 0
+    assert summary.warning_count == 1
+    assert success_asset is not None and success_asset.metadata.ocr_status.value == "success"
+    assert empty_asset is not None and empty_asset.metadata.ocr_status.value == "empty"
+    assert failed_asset is not None and failed_asset.metadata.ocr_status.value == "failed"
+    assert summary.warnings[0].stage == "ocr"
+
+
+def test_index_build_skips_unchanged_files(tmp_path: Path) -> None:
     source_dir = tmp_path / "memes"
     source_dir.mkdir()
     _create_image(source_dir / "friend_text.png", (255, 0, 0))
@@ -33,14 +56,7 @@ def test_index_build_skips_unchanged_files_and_tracks_has_text(tmp_path: Path) -
     second_run = container.indexing_service.build_index(source_dir)
 
     assert first_run.indexed_count == 2
-    assert first_run.failed_count == 0
     assert second_run.skipped_count == 2
-
-    stored_text_asset = container.repository.get_asset_by_sha256(_sha256_file(source_dir / "friend_text.png"))
-    stored_non_text_asset = container.repository.get_asset_by_sha256(_sha256_file(source_dir / "reaction_face.png"))
-
-    assert stored_text_asset is not None and stored_text_asset.metadata.has_text is True
-    assert stored_non_text_asset is not None and stored_non_text_asset.metadata.has_text is False
 
 
 def test_index_build_records_failures_without_aborting_batch(tmp_path: Path) -> None:

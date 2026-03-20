@@ -5,8 +5,17 @@ import math
 import re
 from pathlib import Path
 
-from memetalk.core.models import MemeMetadata, OCRExtraction, QueryAnalysis, RerankCandidate, RerankResult, SearchMode
+from memetalk.core.models import (
+    MemeMetadata,
+    OCRExtraction,
+    OCRStatus,
+    QueryAnalysis,
+    RerankCandidate,
+    RerankResult,
+    SearchMode,
+)
 from memetalk.core.providers import EmbeddingProvider, MetadataProvider, OCRProvider, QueryAnalyzer, Reranker
+from memetalk.core.retrieval import default_retrieval_weights
 
 TOKEN_RULES = {
     "無奈": ("無奈", "自嘲", "冷幽默"),
@@ -51,10 +60,18 @@ class MockOCRProvider(OCRProvider):
 
     def extract_text(self, image_path: Path) -> OCRExtraction:
         stem = image_path.stem.lower()
+        if "ocrfail" in stem or "ocr_fail" in stem:
+            raise RuntimeError("Mock OCR provider forced failure.")
         if "text" in stem or "caption" in stem:
             raw_text = stem.replace("_", " ")
-            return OCRExtraction(text=raw_text, has_text=True, raw_lines=[raw_text])
-        return OCRExtraction(text="", has_text=False, raw_lines=[])
+            return OCRExtraction(
+                text=raw_text,
+                has_text=True,
+                raw_lines=[raw_text],
+                status=OCRStatus.SUCCESS,
+                confidence=0.98,
+            )
+        return OCRExtraction(text="", has_text=False, raw_lines=[], status=OCRStatus.EMPTY, confidence=0.0)
 
 
 class MockMetadataProvider(MetadataProvider):
@@ -62,13 +79,17 @@ class MockMetadataProvider(MetadataProvider):
 
     def analyze_image(self, image_path: Path, ocr_result: OCRExtraction) -> MemeMetadata:
         stem = image_path.stem.replace("_", " ")
-        if "fail" in stem.lower():
+        lowered = stem.lower()
+        if "broken fail" in lowered or "metadata fail" in lowered or "metadatafail" in lowered:
             raise RuntimeError("Mock metadata provider forced failure.")
         emotions, intents, styles = _derive_tags(f"{stem} {ocr_result.text}")
         return MemeMetadata(
             has_text=ocr_result.has_text,
             ocr_text=ocr_result.text,
-            template_name=stem.title(),
+            ocr_status=ocr_result.status,
+            ocr_confidence=ocr_result.confidence,
+            ocr_lines=ocr_result.raw_lines,
+            template_name=stem,
             scene_description=f"模擬分析：{stem} 的反應梗圖場景。",
             meme_usage=f"適合用來回應與「{stem}」相近的吐槽或情緒情境。",
             emotion_tags=emotions,
@@ -85,6 +106,9 @@ class MockEmbeddingProvider(EmbeddingProvider):
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
         return [self._embed_single(text) for text in texts]
+
+    def index_identity(self) -> str:
+        return f"{self.name}:dim-{self.dimensions}"
 
     def _embed_single(self, text: str) -> list[float]:
         vector = [0.0] * self.dimensions
@@ -106,6 +130,8 @@ class MockQueryAnalyzer(QueryAnalyzer):
         emotions, intents, _styles = _derive_tags(query)
         tone = "吐槽型回覆" if "?" not in query else "帶疑問的回覆"
         reply_intent = intents[0]
+        terms = [token for token in re.split(r"[，。！？、\s]+", query) if token]
+        template_hints = [term for term in terms if "meme" in term.lower() or "template" in term.lower()]
         return QueryAnalysis(
             original_query=query,
             situation=f"使用者描述：{query}",
@@ -118,6 +144,9 @@ class MockQueryAnalyzer(QueryAnalyzer):
                 f"語氣：{tone}\n"
                 f"回覆意圖：{reply_intent}"
             ),
+            query_terms=terms,
+            template_hints=template_hints,
+            retrieval_weights=default_retrieval_weights(mode),
         )
 
 
@@ -133,15 +162,13 @@ class MockReranker(Reranker):
         mode: SearchMode = SearchMode.REPLY,
     ) -> list[RerankResult]:
         ranked: list[tuple[float, RerankResult]] = []
-        query_emotions = set(query_analysis.emotions)
         for candidate in candidates:
-            emotion_overlap = len(query_emotions.intersection(candidate.metadata.emotion_tags))
-            intent_bonus = 1 if query_analysis.reply_intent in candidate.metadata.intent_tags else 0
-            score = candidate.vector_score + emotion_overlap * 0.2 + intent_bonus * 0.15
+            score = candidate.deterministic_score
+            if mode == SearchMode.REPLY and candidate.metadata.ocr_status == OCRStatus.SUCCESS:
+                score += 0.15
             reason = (
-                f"情緒重疊 {emotion_overlap} 項，"
-                f"意圖 {'吻合' if intent_bonus else '部分吻合'}，"
-                f"適合拿來回應「{query}」。"
+                f"候選來源：{'/'.join(candidate.candidate_sources) or 'deterministic'}；"
+                f"主要依據為台詞/意圖匹配與向量相似度，適合回應「{query}」。"
             )
             ranked.append((score, RerankResult(image_id=candidate.image_id, score=score, reason=reason)))
         ranked.sort(key=lambda item: item[0], reverse=True)
@@ -171,6 +198,9 @@ class UnsupportedLocalEmbeddingProvider(EmbeddingProvider):
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
         raise UnsupportedLocalCapabilityError("Local embedding provider is not implemented in the MVP.")
+
+    def index_identity(self) -> str:
+        return f"{self.name}:unsupported"
 
 
 class UnsupportedLocalQueryAnalyzer(QueryAnalyzer):

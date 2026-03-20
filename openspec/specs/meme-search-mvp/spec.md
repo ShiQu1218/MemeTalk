@@ -17,7 +17,13 @@
   - `file_path`
   - `has_text`
   - `ocr_text`
+  - `ocr_status`
+  - `ocr_confidence`
+  - `ocr_lines`
   - `template_name`
+  - `template_canonical_id`
+  - `template_aliases`
+  - `template_family`
   - `scene_description`
   - `meme_usage`
   - `emotion_tags`
@@ -25,35 +31,47 @@
   - `style_tags`
   - `embedding_text`
 - `embedding_text` MUST concatenate, in order: template information, scene description, common meme usage, OCR text, emotion tags, intent tags, style tags.
+- Template normalization MUST map visually similar aliases (for example `AnimeReaction` and `anime_reaction`) to the same `template_canonical_id`.
 
 ### REQ-MVP-003 Incremental Indexing Pipeline
 - The system MUST provide a CLI command `index build --source <dir> [--reindex]`.
 - The indexer MUST recursively scan `.jpg`, `.jpeg`, `.png`, `.webp`.
 - The indexer MUST compute SHA-256 per file and skip already indexed files unless `--reindex` is used.
-- OCR failures MUST degrade to empty text and continue processing.
+- OCR failures MUST degrade to empty text, set `ocr_status` to `failed`, and continue processing.
+- OCR empty-but-successful runs MUST set `ocr_status` to `empty`.
+- OCR degradation events MUST be recorded in `index_runs` without aborting the batch.
 - Metadata or embedding failures for one image MUST be recorded in `index_runs` and MUST NOT abort the batch.
 - Canonical metadata MUST be stored in SQLite and vector documents MUST be stored in Chroma-compatible storage.
+- The indexer MUST store per-channel vector documents with an index schema/version boundary derived from provider/model/dimension/channel so incompatible embedding versions do not share the same vector collection or query surface.
+- The indexer MUST maintain a keyword-searchable representation of template aliases, OCR text, and retrieval tags for lexical retrieval.
 
 ### REQ-MVP-004 Query Understanding and Vector Retrieval
 - The system MUST expose `POST /api/v1/search`.
-- Search input MUST be analyzed into structured query fields: situation, emotion, tone, reply intent.
+- Search input MUST be analyzed into structured query fields: situation, emotion, tone, reply intent, query terms, template hints, and retrieval weights.
 - Search MUST support two search modes via a `mode` field (`semantic` | `reply`, default `reply`):
   - **semantic**: finds memes whose overall meaning is close to the query.
   - **reply**: finds memes suitable as a witty reply to the query; OCR text weight is dominant.
-- The indexer MUST produce two embedding documents per meme:
-  - A **semantic** embedding built from the full `embedding_text` (template, scene, usage, OCR, tags).
-  - A **reply** embedding built from OCR-focused text that emphasizes the meme's actual wording.
-- At query time the system MUST filter vector candidates by the requested `search_mode`.
-- Search MUST generate a query embedding from structured query text, retrieve vector top-k candidates (default `candidate_k=15`), and produce a top-n response.
-- Search output MUST include `query_analysis`, `results`, and `provider_trace`.
+- The indexer MUST produce at least two vector channels per meme:
+  - A **semantic** channel built from the full `embedding_text` (template, scene, usage, OCR, tags).
+  - A **reply_text** channel built from OCR-focused text that emphasizes the meme's actual wording and reply tone.
+- Search MUST use multi-route retrieval:
+  - vector retrieval over the semantic channel
+  - vector retrieval over the reply_text channel when in `reply` mode
+  - keyword/template retrieval over OCR text, template aliases, and retrieval tags
+- In `reply` mode, OCR keyword/template retrieval and the `reply_text` channel MUST be the primary routes; the semantic channel MUST be treated as a supplemental backfill route only.
+- Search MUST merge, deduplicate, and score candidates from all enabled retrieval routes before reranking.
+- Search MUST generate route-specific retrieval inputs from query analysis rather than relying on a single query embedding string as the only retrieval artifact.
+- Search output MUST include `query_analysis`, `results`, `provider_trace`, and a minimal `search_trace` showing candidate-source and degradation information.
 
 ### REQ-MVP-005 LLM Reranking and Reasoning
 - Retrieved candidates MUST be reranked before final output when a reranker is available.
+- Retrieved candidates MUST first receive deterministic feature scores before LLM reranking, including lexical OCR overlap, template matches, tag overlaps, vector scores, and reply-mode OCR gating.
 - Reranking MUST respect the search mode:
-  - **reply** mode: OCR text (`ocr_text`) MUST account for 90% of the ranking weight; the text must read as a witty response to the query.
+  - **reply** mode: OCR text (`ocr_text`) and reply fitness are the primary ranking signals; candidates with `ocr_status != success` MUST be explicitly downgraded and MUST NOT compete at the same score tier as candidates with successful OCR unless no better OCR-backed candidates exist.
   - **semantic** mode: overall semantic similarity, scene description, and tag overlap are the primary ranking criteria.
-- If reranking fails, the system MUST fall back to vector ranking and return a non-empty fallback reason for every result.
-- Final results MUST include `image_id`, `image_url`, `reason`, `score`, `template_name`, `emotion_tags`, and `intent_tags`.
+- In `reply` mode, scene/background description MUST be treated as a secondary tie-break signal rather than a primary ranking feature.
+- If reranking fails, the system MUST fall back to deterministic candidate ranking and return a non-empty fallback reason for every result.
+- Final results MUST include `image_id`, `image_url`, `reason`, `score`, `template_name`, `emotion_tags`, `intent_tags`, and route/debug metadata sufficient to explain degraded ranking.
 
 ### REQ-MVP-006 FastAPI Contract
 - The API MUST expose `GET /api/v1/health`.
@@ -86,6 +104,11 @@
 - OpenAI-compatible structured outputs MUST retry or repair recoverable malformed JSON before failing a request.
 - The codebase MUST include a local/mock-friendly provider path so tests can run without external services.
 
+### REQ-MVP-009 Evaluation Pipeline
+- The repository MUST provide an offline evaluation pipeline over a fixed query set with positives and hard negatives.
+- The evaluation pipeline MUST report at least `precision_at_k` and `mrr`.
+- The evaluation fixtures MUST cover reply queries, semantic queries, template-driven queries, OCR phrase queries, and reaction/no-text queries.
+
 ## Acceptance
-- The project MUST include automated tests covering schema validation, embedding text composition, provider registry, OCR/non-OCR branching, rerank fallback, indexing, and API response shape.
+- The project MUST include automated tests covering schema validation, embedding text composition, provider registry, OCR success/empty/failure branching, template normalization, multi-route retrieval, rerank fallback, index schema/version isolation, evaluation reporting, indexing, and API response shape.
 - A minimal dataset of static images MUST be indexable and searchable end-to-end without changing code.

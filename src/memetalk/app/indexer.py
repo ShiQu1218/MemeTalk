@@ -10,13 +10,16 @@ from memetalk.core.models import (
     EmbeddingDocument,
     IndexErrorRecord,
     IndexRunSummary,
+    IndexWarningRecord,
     MemeAsset,
     OCRExtraction,
+    OCRStatus,
     compose_embedding_text,
     compose_reply_embedding_text,
     utc_now,
 )
 from memetalk.core.providers import ProviderBundle
+from memetalk.core.retrieval import build_index_version, normalize_template_fields
 from memetalk.storage.sqlite_store import SQLiteMemeRepository
 from memetalk.storage.vector_store import VectorStore
 
@@ -32,6 +35,7 @@ class IndexProgress:
     indexed: int = 0
     skipped: int = 0
     failed: int = 0
+    warnings: int = 0
 
 
 ProgressCallback = Callable[[IndexProgress], None]
@@ -75,15 +79,18 @@ class IndexingService:
 
         def _report(file_name: str, step: str) -> None:
             if on_progress is not None:
-                on_progress(IndexProgress(
-                    total=total,
-                    current=run.processed_count,
-                    file_name=file_name,
-                    step=step,
-                    indexed=run.indexed_count,
-                    skipped=run.skipped_count,
-                    failed=run.failed_count,
-                ))
+                on_progress(
+                    IndexProgress(
+                        total=total,
+                        current=run.processed_count,
+                        file_name=file_name,
+                        step=step,
+                        indexed=run.indexed_count,
+                        skipped=run.skipped_count,
+                        failed=run.failed_count,
+                        warnings=run.warning_count,
+                    )
+                )
 
         _report("", "scan")
 
@@ -100,18 +107,37 @@ class IndexingService:
                 continue
             try:
                 _report(name, "ocr")
-                ocr_result = self._safe_extract_text(image_path)
+                ocr_result = self._extract_text(image_path, run)
 
                 _report(name, "metadata")
                 metadata = self.providers.metadata_provider.analyze_image(image_path, ocr_result)
                 metadata.has_text = ocr_result.has_text
                 metadata.ocr_text = ocr_result.text
+                metadata.ocr_status = ocr_result.status
+                metadata.ocr_confidence = ocr_result.confidence
+                metadata.ocr_lines = ocr_result.raw_lines
+                (
+                    metadata.template_canonical_id,
+                    metadata.template_aliases,
+                    metadata.template_family,
+                ) = normalize_template_fields(metadata.template_name)
 
                 _report(name, "embedding")
                 metadata.embedding_text = compose_embedding_text(metadata)
                 reply_embedding_text = compose_reply_embedding_text(metadata)
                 semantic_embedding, reply_embedding = self.providers.embedding_provider.embed_texts(
                     [metadata.embedding_text, reply_embedding_text]
+                )
+
+                semantic_index_version = build_index_version(
+                    self.providers.embedding_provider.index_identity(),
+                    len(semantic_embedding),
+                    "semantic",
+                )
+                reply_index_version = build_index_version(
+                    self.providers.embedding_provider.index_identity(),
+                    len(reply_embedding),
+                    "reply_text",
                 )
 
                 _report(name, "store")
@@ -125,22 +151,33 @@ class IndexingService:
                 base_metadata = {
                     "file_path": asset.file_path,
                     "template_name": metadata.template_name or "",
+                    "template_canonical_id": metadata.template_canonical_id,
                     "emotion_tags": ",".join(metadata.emotion_tags),
                     "intent_tags": ",".join(metadata.intent_tags),
                 }
                 self.vector_store.upsert(
                     [
                         EmbeddingDocument(
-                            document_id=asset.image_id,
+                            document_id=f"{asset.image_id}:semantic",
                             text=metadata.embedding_text,
                             vector=semantic_embedding,
-                            metadata={**base_metadata, "search_mode": "semantic"},
+                            metadata={
+                                **base_metadata,
+                                "search_mode": "semantic",
+                                "channel": "semantic",
+                                "index_version": semantic_index_version,
+                            },
                         ),
                         EmbeddingDocument(
-                            document_id=f"{asset.image_id}:reply",
+                            document_id=f"{asset.image_id}:reply_text",
                             text=reply_embedding_text,
                             vector=reply_embedding,
-                            metadata={**base_metadata, "search_mode": "reply"},
+                            metadata={
+                                **base_metadata,
+                                "search_mode": "reply",
+                                "channel": "reply_text",
+                                "index_version": reply_index_version,
+                            },
                         ),
                     ]
                 )
@@ -151,12 +188,36 @@ class IndexingService:
                 run.errors.append(IndexErrorRecord(file_path=str(image_path.resolve()), error=str(exc)))
                 _report(name, "error")
         run.completed_at = utc_now()
-        run.status = "completed_with_errors" if run.failed_count else "completed"
+        if run.failed_count:
+            run.status = "completed_with_errors"
+        elif run.warning_count:
+            run.status = "completed_with_warnings"
+        else:
+            run.status = "completed"
         self.repository.save_index_run(run)
         return run
 
-    def _safe_extract_text(self, image_path: Path) -> OCRExtraction:
+    def _extract_text(self, image_path: Path, run: IndexRunSummary) -> OCRExtraction:
         try:
-            return self.providers.ocr_provider.extract_text(image_path)
-        except Exception:
-            return OCRExtraction()
+            result = self.providers.ocr_provider.extract_text(image_path)
+        except Exception as exc:
+            run.warning_count += 1
+            run.warnings.append(
+                IndexWarningRecord(
+                    file_path=str(image_path.resolve()),
+                    warning=str(exc),
+                    stage="ocr",
+                )
+            )
+            return OCRExtraction(status=OCRStatus.FAILED, error=str(exc))
+        if result.status == OCRStatus.FAILED:
+            run.warning_count += 1
+            run.warnings.append(
+                IndexWarningRecord(
+                    file_path=str(image_path.resolve()),
+                    warning=result.error or "OCR returned failed status.",
+                    stage="ocr",
+                )
+            )
+            return result
+        return result
