@@ -355,8 +355,9 @@ streamlit run streamlit_app.py
 
 1. `⚙️ Settings`
    - 選 provider backend、model、vector backend、OCR backend
+   - 儲存預設梗圖資料夾
 2. `📦 Index`
-   - 指定梗圖資料夾並建立索引
+   - 以預設梗圖資料夾為起點，或臨時指定另一個資料夾建立索引
 3. `🔍 Search`
    - 選擇 `適合回覆` 或 `契合語意`
    - 輸入 query

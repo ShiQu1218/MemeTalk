@@ -253,8 +253,8 @@ class SearchResponse(BaseModel):
 
 class SearchRequest(BaseModel):
     query: str = Field(min_length=1)
-    top_n: int = Field(default=3, ge=1, le=5)
-    candidate_k: int = Field(default=15, ge=1, le=30)
+    top_n: int = Field(default=6, ge=1, le=10)
+    candidate_k: int = Field(default=20, ge=1, le=30)
     mode: SearchMode = SearchMode.REPLY
     preferred_tone: str | None = None
 

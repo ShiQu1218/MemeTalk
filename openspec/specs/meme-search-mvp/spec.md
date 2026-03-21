@@ -98,11 +98,15 @@
 - The app MUST be launchable with a single command: `streamlit run streamlit_app.py`.
 - The app MUST include the following pages:
   - **Dashboard** (`streamlit_app.py`): system status overview showing current provider, vector backend, indexed meme count, and a health check.
-  - **Settings** (`pages/1_⚙️_Settings.py`): provider selection (openai / lmstudio / mock), API key input, base URL, model configuration, vector backend, and OCR backend. Settings MUST be persisted to a TOML file (`data/memetalk_config.toml`).
-  - **Index** (`pages/2_📦_Index.py`): meme folder path input, optional force-reindex toggle, progress display, and result summary (processed / indexed / skipped / failed counts with error details).
+  - **Settings** (`pages/1_⚙️_Settings.py`): provider selection (openai / lmstudio / mock), API key input, base URL, model configuration, vector backend, OCR backend, and a persisted default meme folder path. Settings MUST be persisted to a TOML file (`data/memetalk_config.toml`).
+  - **Index** (`pages/2_📦_Index.py`): meme folder path input seeded from the saved default meme folder, optional force-reindex toggle, progress display, and result summary (processed / indexed / skipped / failed counts with error details).
   - **Search** (`pages/3_🔍_Search.py`): search mode selector (適合回覆 / 契合語意), natural-language query input, query analysis display, top-N result cards with images loaded from local file paths, recommended reason text, and visible emotion and intent tags.
 - The Search page MUST include an optional input for preferred meme tone (for example 嘴砲, 冷淡, 可憐, 陰陽怪氣) and pass that preference into query analysis and reranking.
 - Settings MUST support a priority chain: environment variables > TOML config file > pydantic defaults.
+- Settings persistence MUST merge submitted values with the existing persisted settings and MUST NOT clear unrelated stored fields such as `meme_folder` during a partial update.
+- The Index page MUST treat its meme folder input as a per-run override only; editing that field in the page MUST NOT automatically rewrite the saved default meme folder path.
+- The Streamlit app MUST apply a consistent visual shell across Dashboard, Settings, Index, and Search, including shared page headers, section hierarchy, and readable status presentation on both desktop and narrow layouts.
+- The shared visual shell MUST support both Streamlit light and dark themes without per-page overrides, preserving readable contrast for backgrounds, cards, metrics, notices, buttons, form inputs, and expanders in both modes.
 - The app MUST NOT require manual environment variable configuration or a `secrets.toml` file to start.
 
 ### REQ-MVP-008 Provider Abstraction

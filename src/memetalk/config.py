@@ -34,8 +34,8 @@ class AppSettings(BaseModel):
     lmstudio_chat_model: str | None = None
     lmstudio_vision_model: str | None = None
     lmstudio_embedding_model: str | None = None
-    search_candidate_k_default: int = 15
-    search_top_n_default: int = 3
+    search_candidate_k_default: int = 20
+    search_top_n_default: int = 6
     search_scoring_profile_path: Path = Field(default_factory=lambda: Path("data/search_scoring_profile.json"))
     meme_folder: str = ""
 
@@ -59,12 +59,13 @@ class AppSettings(BaseModel):
             lmstudio_chat_model=os.getenv("MEMETALK_LMSTUDIO_CHAT_MODEL"),
             lmstudio_vision_model=os.getenv("MEMETALK_LMSTUDIO_VISION_MODEL"),
             lmstudio_embedding_model=os.getenv("MEMETALK_LMSTUDIO_EMBEDDING_MODEL"),
-            search_candidate_k_default=_env_int("MEMETALK_SEARCH_CANDIDATE_K", 15),
-            search_top_n_default=_env_int("MEMETALK_SEARCH_TOP_N", 3),
+            search_candidate_k_default=_env_int("MEMETALK_SEARCH_CANDIDATE_K", 20),
+            search_top_n_default=_env_int("MEMETALK_SEARCH_TOP_N", 6),
             search_scoring_profile_path=_env_path(
                 "MEMETALK_SEARCH_SCORING_PROFILE_PATH",
                 "data/search_scoring_profile.json",
             ),
+            meme_folder=os.getenv("MEMETALK_MEME_FOLDER", ""),
         )
 
     def ensure_runtime_dirs(self) -> None:

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import os
 import sys
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -77,3 +79,10 @@ def save_settings(settings: AppSettings, path: Path = DEFAULT_CONFIG_PATH) -> No
             data[field_name] = value
     with open(path, "wb") as f:
         tomli_w.dump(data, f)
+
+
+def merge_settings(base: AppSettings, updates: Mapping[str, Any]) -> AppSettings:
+    """Return validated settings with selected fields updated and others preserved."""
+    payload = base.model_dump(mode="python")
+    payload.update(updates)
+    return AppSettings.model_validate(payload)

@@ -32,7 +32,7 @@ from memetalk.storage.sqlite_store import SQLiteMemeRepository
 from memetalk.storage.vector_store import VectorStore
 
 FALLBACK_REASON = "deterministic 排序 fallback：暫時無法完成 rerank，保留綜合檢索與規則評分最高的候選結果。"
-RERANK_POOL_MULTIPLIER = 3
+RERANK_POOL_SIZE = 16
 QUERY_ANALYSIS_CACHE_SIZE = 128
 QUERY_EMBEDDING_CACHE_SIZE = 256
 RERANK_RESULT_CACHE_SIZE = 128
@@ -365,7 +365,7 @@ class SearchService:
                 ],
                 "deterministic_only",
             )
-        rerank_pool_size = max(top_n, min(len(candidates), top_n * RERANK_POOL_MULTIPLIER))
+        rerank_pool_size = max(top_n, min(len(candidates), RERANK_POOL_SIZE))
         rerank_pool = self._build_rerank_pool(candidates, rerank_pool_size, mode)
         try:
             reranked = self._rerank_candidates(query, query_analysis, rerank_pool, top_n, mode)
