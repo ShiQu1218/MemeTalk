@@ -55,12 +55,15 @@ class MemeMetadata(BaseModel):
     template_family: str = ""
     scene_description: str
     meme_usage: str
+    visual_description: str = ""
+    aesthetic_tags: list[str] = Field(default_factory=list)
+    usage_scenario: str = ""
     emotion_tags: list[str] = Field(default_factory=list)
     intent_tags: list[str] = Field(default_factory=list)
     style_tags: list[str] = Field(default_factory=list)
     embedding_text: str = ""
 
-    @field_validator("emotion_tags", "intent_tags", "style_tags", "template_aliases")
+    @field_validator("emotion_tags", "intent_tags", "style_tags", "aesthetic_tags", "template_aliases")
     @classmethod
     def normalize_tags(cls, values: list[str]) -> list[str]:
         return _clean_tags(values)
@@ -75,14 +78,21 @@ def compose_embedding_text(metadata: MemeMetadata) -> str:
     parts = []
     if metadata.ocr_text:
         parts.append(f"核心文字：{metadata.ocr_text}")
+    parts.append(f"模板資訊：{metadata.template_name or '未知模板'}")
+    if metadata.visual_description:
+        parts.append(f"視覺描述：{metadata.visual_description}")
     parts.extend([
-        f"模板資訊：{metadata.template_name or '未知模板'}",
         f"畫面描述：{metadata.scene_description}",
         f"常見用途：{metadata.meme_usage}",
+    ])
+    if metadata.usage_scenario:
+        parts.append(f"使用情境：{metadata.usage_scenario}")
+    parts.extend([
         f"OCR 文字：{metadata.ocr_text or '無文字'}",
         "情緒標籤：" + ("、".join(metadata.emotion_tags) if metadata.emotion_tags else "無"),
         "意圖標籤：" + ("、".join(metadata.intent_tags) if metadata.intent_tags else "無"),
         "風格標籤：" + ("、".join(metadata.style_tags) if metadata.style_tags else "無"),
+        "視覺風格：" + ("、".join(metadata.aesthetic_tags) if metadata.aesthetic_tags else "無"),
     ])
     return "\n".join(parts)
 

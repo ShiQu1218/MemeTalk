@@ -10,7 +10,7 @@ from typing import Any
 from PIL import Image
 
 from memetalk.config import AppSettings
-from memetalk.core.models import MemeMetadata, OCRExtraction, QueryAnalysis, RerankCandidate, RerankResult, SearchMode
+from memetalk.core.models import MemeMetadata, OCRExtraction, OCRStatus, QueryAnalysis, RerankCandidate, RerankResult, SearchMode
 from memetalk.core.providers import EmbeddingProvider, MetadataProvider, QueryAnalyzer, Reranker
 from memetalk.core.retrieval import default_retrieval_weights
 
@@ -257,27 +257,49 @@ class CompatibleMetadataProvider(_OpenAICompatibleBase, MetadataProvider):
         super().__init__(profile)
         self.name = f"{profile.label}-metadata"
 
-    def analyze_image(self, image_path: Path, ocr_result: OCRExtraction) -> MemeMetadata:
+    def analyze_image(self, image_path: Path, ocr_hint: OCRExtraction | None = None) -> MemeMetadata:
         image_data_url = _build_image_data_url(image_path, self.profile.label)
         prompt = (
-            "你是繁體中文的梗圖 metadata 分析器。"
-            "請回傳 JSON，欄位為 template_name, scene_description, meme_usage, emotion_tags, intent_tags, style_tags。"
-            "回覆時要考慮圖片內容以及 OCR 文字。"
+            "你是繁體中文的梗圖分析器，需要一次完成 OCR 辨識與 metadata 分析。"
+            "請回傳 JSON，欄位如下："
+            "ocr_text（圖片上的所有文字，如果沒有文字則為空字串）、"
+            "ocr_lines（文字逐行陣列）、"
+            "template_name、scene_description、meme_usage、"
+            "visual_description（用繁體中文描述圖片的視覺構圖、人物表情、色調風格等審美特徵）、"
+            "aesthetic_tags（視覺風格短標籤陣列，例如「對比構圖」「表情誇張」「二段式」）、"
+            "usage_scenario（用繁體中文描述這張梗圖最適合在什麼對話情境下使用）、"
+            "emotion_tags、intent_tags、style_tags。"
+            "請仔細辨識圖片上的所有文字，包含中文、英文、符號。"
         )
-        data = self._json_completion(
-            prompt,
-            [
-                {"type": "text", "text": f"OCR 文字：{ocr_result.text or '無'}"},
-                {"type": "image_url", "image_url": {"url": image_data_url}},
-            ],
-            self.profile.vision_model,
-        )
+        hint_text = ""
+        if ocr_hint and ocr_hint.text:
+            hint_text = f"參考 OCR 提示：{ocr_hint.text}\n請驗證並修正上述 OCR 結果。"
+        user_content: list[dict[str, Any]] = []
+        if hint_text:
+            user_content.append({"type": "text", "text": hint_text})
+        user_content.append({"type": "image_url", "image_url": {"url": image_data_url}})
+        data = self._json_completion(prompt, user_content, self.profile.vision_model)
+        ocr_text = (data.get("ocr_text") or "").strip()
+        ocr_lines = data.get("ocr_lines") or []
+        if not ocr_lines and ocr_text:
+            ocr_lines = [line.strip() for line in ocr_text.splitlines() if line.strip()]
+        has_text = bool(ocr_text)
+        if has_text:
+            ocr_status = OCRStatus.SUCCESS
+        else:
+            ocr_status = OCRStatus.EMPTY
         return MemeMetadata(
-            has_text=ocr_result.has_text,
-            ocr_text=ocr_result.text,
+            has_text=has_text,
+            ocr_text=ocr_text,
+            ocr_status=ocr_status,
+            ocr_confidence=None,
+            ocr_lines=ocr_lines,
             template_name=data.get("template_name"),
-            scene_description=data["scene_description"],
-            meme_usage=data["meme_usage"],
+            scene_description=data.get("scene_description", ""),
+            meme_usage=data.get("meme_usage", ""),
+            visual_description=data.get("visual_description", ""),
+            aesthetic_tags=data.get("aesthetic_tags", []),
+            usage_scenario=data.get("usage_scenario", ""),
             emotion_tags=data.get("emotion_tags", []),
             intent_tags=data.get("intent_tags", []),
             style_tags=data.get("style_tags", []),

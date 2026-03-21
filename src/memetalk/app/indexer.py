@@ -118,15 +118,12 @@ class IndexingService:
                 continue
             try:
                 _report(name, "ocr")
-                ocr_result = self._extract_text(image_path, run)
+                ocr_hint = self._extract_text(image_path, run)
 
                 _report(name, "metadata")
-                metadata = self.providers.metadata_provider.analyze_image(image_path, ocr_result)
-                metadata.has_text = ocr_result.has_text
-                metadata.ocr_text = ocr_result.text
-                metadata.ocr_status = ocr_result.status
-                metadata.ocr_confidence = ocr_result.confidence
-                metadata.ocr_lines = ocr_result.raw_lines
+                metadata = self.providers.metadata_provider.analyze_image(image_path, ocr_hint)
+                if ocr_hint and ocr_hint.confidence is not None and metadata.ocr_confidence is None:
+                    metadata.ocr_confidence = ocr_hint.confidence
                 (
                     metadata.template_canonical_id,
                     metadata.template_aliases,

@@ -77,21 +77,44 @@ class MockOCRProvider(OCRProvider):
 class MockMetadataProvider(MetadataProvider):
     name = "mock-metadata"
 
-    def analyze_image(self, image_path: Path, ocr_result: OCRExtraction) -> MemeMetadata:
+    def analyze_image(self, image_path: Path, ocr_hint: OCRExtraction | None = None) -> MemeMetadata:
         stem = image_path.stem.replace("_", " ")
         lowered = stem.lower()
         if "broken fail" in lowered or "metadata fail" in lowered or "metadatafail" in lowered:
             raise RuntimeError("Mock metadata provider forced failure.")
-        emotions, intents, styles = _derive_tags(f"{stem} {ocr_result.text}")
+        # Simulate integrated OCR: derive from filename like MockOCRProvider
+        if ocr_hint is not None:
+            ocr_text = ocr_hint.text
+            has_text = ocr_hint.has_text
+            ocr_status = ocr_hint.status
+            ocr_confidence = ocr_hint.confidence
+            ocr_lines = ocr_hint.raw_lines
+        elif "text" in lowered or "caption" in lowered:
+            raw_text = stem.replace("_", " ")
+            ocr_text = raw_text
+            has_text = True
+            ocr_status = OCRStatus.SUCCESS
+            ocr_confidence = 0.98
+            ocr_lines = [raw_text]
+        else:
+            ocr_text = ""
+            has_text = False
+            ocr_status = OCRStatus.EMPTY
+            ocr_confidence = 0.0
+            ocr_lines = []
+        emotions, intents, styles = _derive_tags(f"{stem} {ocr_text}")
         return MemeMetadata(
-            has_text=ocr_result.has_text,
-            ocr_text=ocr_result.text,
-            ocr_status=ocr_result.status,
-            ocr_confidence=ocr_result.confidence,
-            ocr_lines=ocr_result.raw_lines,
+            has_text=has_text,
+            ocr_text=ocr_text,
+            ocr_status=ocr_status,
+            ocr_confidence=ocr_confidence,
+            ocr_lines=ocr_lines,
             template_name=stem,
             scene_description=f"模擬分析：{stem} 的反應梗圖場景。",
             meme_usage=f"適合用來回應與「{stem}」相近的吐槽或情緒情境。",
+            visual_description=f"模擬視覺描述：{stem} 的構圖與表情特徵。",
+            aesthetic_tags=["模擬風格"],
+            usage_scenario=f"適合在討論「{stem}」相關話題時使用。",
             emotion_tags=emotions,
             intent_tags=intents,
             style_tags=styles,
@@ -198,7 +221,7 @@ class UnsupportedLocalOCRProvider(OCRProvider):
 class UnsupportedLocalMetadataProvider(MetadataProvider):
     name = "local-unsupported-metadata"
 
-    def analyze_image(self, image_path: Path, ocr_result: OCRExtraction) -> MemeMetadata:
+    def analyze_image(self, image_path: Path, ocr_hint: OCRExtraction | None = None) -> MemeMetadata:
         raise UnsupportedLocalCapabilityError("Local metadata provider is not implemented in the MVP.")
 
 

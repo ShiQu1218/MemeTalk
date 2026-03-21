@@ -57,9 +57,12 @@ def build_keyword_text(metadata: MemeMetadata) -> str:
         metadata.ocr_text,
         metadata.scene_description,
         metadata.meme_usage,
+        metadata.visual_description,
+        metadata.usage_scenario,
         " ".join(metadata.emotion_tags),
         " ".join(metadata.intent_tags),
         " ".join(metadata.style_tags),
+        " ".join(metadata.aesthetic_tags),
         metadata.ocr_status.value,
     ]
     return "\n".join(part for part in parts if part).strip()

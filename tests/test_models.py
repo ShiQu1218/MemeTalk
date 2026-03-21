@@ -12,6 +12,9 @@ def test_compose_embedding_text_uses_required_order() -> None:
         template_name="Distracted Boyfriend",
         scene_description="男主角回頭看別人，女友一臉傻眼。",
         meme_usage="適合用來表達注意力跑掉或臨陣倒戈。",
+        visual_description="左側男子回頭望向經過的女子，右側女友露出不滿表情，三人構圖形成對比。",
+        aesthetic_tags=["對比構圖", "表情誇張", "三人構圖"],
+        usage_scenario="適合在朋友見異思遷或注意力不集中時使用。",
         emotion_tags=["傻眼", "無奈"],
         intent_tags=["吐槽", "打臉"],
         style_tags=["誇張", "冷幽默"],
@@ -22,12 +25,15 @@ def test_compose_embedding_text_uses_required_order() -> None:
     assert embedding_text.splitlines() == [
         "核心文字：我快到了",
         "模板資訊：Distracted Boyfriend",
+        "視覺描述：左側男子回頭望向經過的女子，右側女友露出不滿表情，三人構圖形成對比。",
         "畫面描述：男主角回頭看別人，女友一臉傻眼。",
         "常見用途：適合用來表達注意力跑掉或臨陣倒戈。",
+        "使用情境：適合在朋友見異思遷或注意力不集中時使用。",
         "OCR 文字：我快到了",
         "情緒標籤：傻眼、無奈",
         "意圖標籤：吐槽、打臉",
         "風格標籤：誇張、冷幽默",
+        "視覺風格：對比構圖、表情誇張、三人構圖",
     ]
 
 

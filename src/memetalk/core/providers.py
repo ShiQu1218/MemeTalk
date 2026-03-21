@@ -19,7 +19,7 @@ class MetadataProvider(ABC):
     name: str
 
     @abstractmethod
-    def analyze_image(self, image_path: Path, ocr_result: OCRExtraction):
+    def analyze_image(self, image_path: Path, ocr_hint: OCRExtraction | None = None):
         raise NotImplementedError
 
 

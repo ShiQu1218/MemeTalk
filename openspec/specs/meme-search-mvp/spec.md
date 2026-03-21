@@ -26,17 +26,25 @@
   - `template_family`
   - `scene_description`
   - `meme_usage`
+  - `visual_description`
+  - `aesthetic_tags`
+  - `usage_scenario`
   - `emotion_tags`
   - `intent_tags`
   - `style_tags`
   - `embedding_text`
-- `embedding_text` MUST concatenate, in order: template information, scene description, common meme usage, OCR text, emotion tags, intent tags, style tags.
+- `visual_description` MUST contain an AI-generated aesthetic description of the image's visual composition, expressions, and overall impression, written in Traditional Chinese.
+- `aesthetic_tags` MUST contain short tags describing visual style characteristics (for example `對比構圖`, `表情誇張`, `二段式`).
+- `usage_scenario` MUST describe the conversational scenario where this meme is most effective, written in Traditional Chinese.
+- `embedding_text` MUST concatenate, in order: template information, visual description, scene description, common meme usage, usage scenario, OCR text, emotion tags, intent tags, style tags, aesthetic tags.
 - Template normalization MUST map visually similar aliases (for example `AnimeReaction` and `anime_reaction`) to the same `template_canonical_id`.
 
 ### REQ-MVP-003 Incremental Indexing Pipeline
 - The system MUST provide a CLI command `index build --source <dir> [--reindex]`.
 - The indexer MUST recursively scan `.jpg`, `.jpeg`, `.png`, `.webp`.
 - The indexer MUST compute SHA-256 per file and skip already indexed files unless `--reindex` is used.
+- The metadata provider MUST perform OCR, aesthetic analysis, and metadata extraction in a single Vision LLM call, eliminating the need for a separate OCR step during indexing.
+- When a dedicated OCR provider is configured (for example PaddleOCR), the indexer MAY run it before metadata analysis and pass the OCR text as a hint; the metadata provider MUST still accept and process images without a prior OCR result.
 - OCR failures MUST degrade to empty text, set `ocr_status` to `failed`, and continue processing.
 - OCR empty-but-successful runs MUST set `ocr_status` to `empty`.
 - OCR degradation events MUST be recorded in `index_runs` without aborting the batch.
@@ -99,8 +107,8 @@
 
 ### REQ-MVP-008 Provider Abstraction
 - The system MUST define replaceable provider interfaces for:
-  - OCR via `extract_text`
-  - metadata analysis via `analyze_image`
+  - OCR via `extract_text` (optional; may be integrated into the metadata provider)
+  - metadata analysis via `analyze_image(image_path, ocr_hint=None)` which MUST return unified metadata including OCR fields, visual description, aesthetic tags, usage scenario, and all traditional metadata fields
   - embeddings via `embed_texts`
   - query analysis via `analyze_query(query, mode, preferred_tone=None)`
   - reranking via `rerank(query, query_analysis, candidates, top_n, mode)`
