@@ -201,7 +201,7 @@ class EvaluationService:
                 "intent_match",
                 "preferred_tone_match",
                 "penalty_multiplier",
-                "non_ocr_score_cap",
+                "ocr_mismatch_score_cap",
             ]
         return [
             "semantic_vector",
@@ -216,9 +216,9 @@ class EvaluationService:
         ]
 
     def _candidate_values(self, field_name: str, current_value: float | None) -> list[float]:
-        if field_name == "non_ocr_score_cap":
-            baseline = float(current_value if current_value is not None else 0.48)
-            return sorted({0.32, 0.4, round(baseline, 3), 0.56, 0.64})
+        if field_name == "ocr_mismatch_score_cap":
+            baseline = float(current_value if current_value is not None else 0.52)
+            return sorted({0.36, 0.44, round(baseline, 3), 0.60, 0.68})
         baseline = float(current_value if current_value is not None else 0.0)
         factors = (0.5, 0.75, 1.0, 1.25, 1.5)
         candidates = {0.0}

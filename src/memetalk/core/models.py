@@ -157,7 +157,8 @@ class DeterministicModeScoringProfile(BaseModel):
     preferred_tone_match: float = 0.0
     semantic_text_overlap: float = 0.0
     penalty_multiplier: float = 1.0
-    non_ocr_score_cap: float | None = None
+    ocr_mismatch_score_cap: float | None = None
+    ocr_mismatch_threshold: float = 0.1
 
 
 class SearchScoringProfile(BaseModel):

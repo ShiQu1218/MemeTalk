@@ -30,7 +30,6 @@ from memetalk.core.retrieval import (
     default_retrieval_weights,
     default_search_scoring_profile,
     lexical_overlap_score,
-    ocr_penalty,
     split_terms,
     template_hint_score,
 )
@@ -440,6 +439,12 @@ class SearchService:
             degradation_flags: list[str] = []
             if mode == SearchMode.REPLY and asset.metadata.ocr_status != OCRStatus.SUCCESS:
                 degradation_flags.append(f"reply_no_ocr:{asset.metadata.ocr_status.value}")
+            if (
+                mode == SearchMode.REPLY
+                and asset.metadata.ocr_status == OCRStatus.SUCCESS
+                and feature_scores.get("ocr_overlap", 0.0) < self.scoring_profile.reply.ocr_mismatch_threshold
+            ):
+                degradation_flags.append("reply_ocr_mismatch")
             candidates.append(
                 RerankCandidate(
                     image_id=image_id,
@@ -474,7 +479,6 @@ class SearchService:
         intent_match = feature_scores.get("intent_match", 0.0)
         preferred_tone_match = feature_scores.get("preferred_tone_match", 0.0)
         semantic_text_overlap = feature_scores.get("semantic_text_overlap", 0.0)
-        penalty = ocr_penalty(asset.metadata, mode)
         profile = self.scoring_profile.reply if mode == SearchMode.REPLY else self.scoring_profile.semantic
 
         if mode == SearchMode.REPLY:
@@ -487,10 +491,13 @@ class SearchService:
                 + (intent_match * profile.intent_match)
                 + (emotion_overlap * profile.emotion_overlap)
                 + (preferred_tone_match * profile.preferred_tone_match)
-                - (penalty * profile.penalty_multiplier)
             )
-            if asset.metadata.ocr_status != OCRStatus.SUCCESS and profile.non_ocr_score_cap is not None:
-                return min(score, profile.non_ocr_score_cap)
+            if (
+                asset.metadata.ocr_status == OCRStatus.SUCCESS
+                and profile.ocr_mismatch_score_cap is not None
+                and ocr_overlap < profile.ocr_mismatch_threshold
+            ):
+                return min(score, profile.ocr_mismatch_score_cap)
             return score
         return (
             (semantic_vector * weights.semantic * profile.semantic_vector)
@@ -501,7 +508,6 @@ class SearchService:
             + (emotion_overlap * profile.emotion_overlap)
             + (intent_match * profile.intent_match)
             + (preferred_tone_match * profile.preferred_tone_match)
-            - (penalty * profile.penalty_multiplier)
         )
 
     def _rerank_or_fallback(

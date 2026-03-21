@@ -156,7 +156,6 @@ def test_reply_mode_downgrades_candidates_without_ocr_text(tmp_path: Path) -> No
     assert len(response.results) == 2
     assert response.results[0].debug.degradation_flags == []
     assert response.results[1].debug.degradation_flags == ["reply_no_ocr:empty"]
-    assert response.results[1].score <= 0.48
 
 
 def test_reply_mode_uses_ocr_backed_candidates_first_in_rerank_pool(tmp_path: Path) -> None:

@@ -85,7 +85,7 @@
 - Retrieved candidates MUST first receive deterministic feature scores before LLM reranking, including lexical OCR overlap, template matches, tag overlaps, vector scores, and reply-mode OCR gating.
 - The deterministic feature scoring profile SHOULD be serializable to JSON so it can be tuned offline and reused at runtime.
 - Reranking MUST respect the search mode:
-  - **reply** mode: OCR text (`ocr_text`) and reply fitness are the primary ranking signals; candidates with `ocr_status != success` MUST be explicitly downgraded and MUST NOT compete at the same score tier as candidates with successful OCR unless no better OCR-backed candidates exist.
+  - **reply** mode: OCR text (`ocr_text`) and reply fitness are the primary ranking signals; candidates with `ocr_status == success` but whose OCR text has low lexical overlap with the query (below `ocr_mismatch_threshold`) MUST have their deterministic score capped at `ocr_mismatch_score_cap`; candidates without OCR text MAY compete freely based on visual expression relevance without a hard score cap.
   - **semantic** mode: overall semantic similarity, scene description, and tag overlap are the primary ranking criteria.
 - In `reply` mode, scene/background description MUST be treated as a secondary tie-break signal rather than a primary ranking feature.
 - If reranking fails, the system MUST fall back to deterministic candidate ranking and return a non-empty fallback reason for every result.

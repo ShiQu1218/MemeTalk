@@ -7,7 +7,6 @@ from collections.abc import Iterable
 from memetalk.core.models import (
     DeterministicModeScoringProfile,
     MemeMetadata,
-    OCRStatus,
     QueryAnalysis,
     RetrievalWeights,
     SearchMode,
@@ -112,7 +111,8 @@ def default_search_scoring_profile() -> SearchScoringProfile:
             emotion_overlap=0.05,
             preferred_tone_match=0.16,
             penalty_multiplier=1.0,
-            non_ocr_score_cap=0.48,
+            ocr_mismatch_score_cap=0.52,
+            ocr_mismatch_threshold=0.1,
         ),
         semantic=DeterministicModeScoringProfile(
             semantic_vector=0.45,
@@ -144,20 +144,6 @@ def template_hint_score(template_hints: Iterable[str], metadata: MemeMetadata) -
         return 0.0
     matches = sum(1 for hint in hints if hint in searchable)
     return matches / len(hints)
-
-
-_PENALTY_OCR_EMPTY = 0.28
-_PENALTY_OCR_FAILED = 0.4
-
-
-def ocr_penalty(metadata: MemeMetadata, mode: SearchMode) -> float:
-    if mode != SearchMode.REPLY:
-        return 0.0
-    if metadata.ocr_status == OCRStatus.SUCCESS:
-        return 0.0
-    if metadata.ocr_status == OCRStatus.EMPTY:
-        return _PENALTY_OCR_EMPTY
-    return _PENALTY_OCR_FAILED
 
 
 def build_index_version(identity: str, vector_length: int, channel: str) -> str:

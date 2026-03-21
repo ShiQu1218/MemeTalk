@@ -88,7 +88,7 @@ Streamlit UI / CLI / FastAPI
 - `src/memetalk/storage/vector_store.py`
   - `memory` / `chroma` 向量存取
 - `src/memetalk/providers/`
-  - OpenAI / LM Studio / mock / PaddleOCR 等 provider 實作
+  - OpenAI-compatible provider profiles、Anthropic Claude、mock、PaddleOCR 等實作
 
 ## 系統設計重點
 
@@ -247,7 +247,7 @@ query 會先被拆成結構化欄位：
 - `intent_match`
 - `preferred_tone_match`
 - `semantic_text_overlap`
-- `reply` 模式下的 OCR penalty / non-OCR cap
+- `reply` 模式下的 OCR mismatch score cap（有 OCR 但文不對題時壓分）
 
 這一層現在已經不是硬編碼常數，而是來自一份 JSON scoring profile。
 
@@ -302,17 +302,45 @@ MemeTalk 把能力拆成可替換 provider：
 
 - `openai`
 - `lmstudio`
+- `ollama`
+- `llama_cpp`
+- `gemini`
+- `claude`
 - `mock`
 - `local`（保留介面，MVP 未完整實作）
 
 ### OpenAI-compatible providers
 
-OpenAI 與 LM Studio 共用一條 OpenAI-compatible 實作，包含：
+OpenAI、LM Studio、Ollama、llama.cpp、Gemini 共用一條 OpenAI-compatible 實作，包含：
 
 - chat / vision / embedding
 - structured JSON output repair / retry
 - LM Studio model-not-loaded 的可操作錯誤提示
 - LM Studio `.webp` 轉 PNG data URL 相容處理
+
+各 backend 的目前定位：
+
+- `openai`
+  - 預設雲端設定，預設模型為 `gpt-4.1-mini` / `text-embedding-3-small`
+- `lmstudio`
+  - 走本機 OpenAI-compatible server，適合桌面模型開發與驗證
+- `ollama`
+  - 預設 base URL 為 `http://localhost:11434/v1`
+  - 預設建議模型為 `llama3`、`llava`、`nomic-embed-text`
+- `llama_cpp`
+  - 預設 base URL 為 `http://localhost:8080/v1`
+  - 模型由 llama.cpp server 載入內容決定
+- `gemini`
+  - 透過 Google 的 OpenAI-compatible endpoint 存取
+  - 預設模型為 `gemini-2.0-flash` / `text-embedding-004`
+
+### Claude provider
+
+`claude` backend 使用 Anthropic SDK 處理 chat、vision、query analysis 與 rerank。
+
+- Claude 本身沒有 embedding API
+- 因此索引與搜尋用的 embedding 會借用 `openai` 或 `gemini`
+- 在 Settings 頁可直接切換 `claude_embedding_provider`
 
 ### OCR runtime
 
@@ -338,10 +366,16 @@ python -m pip install -e .[ocr]
 
 ### 1. 安裝
 
-完整本機開發安裝：
+完整本機開發安裝（OpenAI-compatible provider + Chroma + PaddleOCR）：
 
 ```bash
 pip install -e .[dev,openai,chroma,ocr]
+```
+
+若要使用 Claude：
+
+```bash
+pip install -e .[dev,openai,anthropic,chroma,ocr]
 ```
 
 若只想快速 smoke test，不碰外部 provider：
@@ -349,6 +383,8 @@ pip install -e .[dev,openai,chroma,ocr]
 ```bash
 pip install -e .[dev]
 ```
+
+若只想跑 UI 與一般搜尋，不先安裝 PaddleOCR 也可以；但要做正式索引時，仍建議補上 `.[ocr]`。
 
 ### 2. 啟動 Streamlit
 
@@ -358,10 +394,26 @@ streamlit run streamlit_app.py
 
 打開 `http://localhost:8501`。
 
+Windows 也可以直接執行：
+
+```bat
+launch.bat
+```
+
+`launch.bat` 會自動：
+
+- 偵測 Python
+- 建立或重用 `.venv`
+- 安裝 `.[openai,chroma]`
+- 啟動 Streamlit
+
+如果你要用 PaddleOCR 或 Claude，仍需另外補裝對應 extras。
+
 ### 3. 基本操作
 
 1. `⚙️ Settings`
    - 選 provider backend、model、vector backend、OCR backend
+   - 目前 UI 直接支援 `openai`、`lmstudio`、`ollama`、`llama_cpp`、`gemini`、`claude`、`mock`
    - 儲存預設梗圖資料夾
 2. `📦 Index`
    - 以預設梗圖資料夾為起點，或臨時指定另一個資料夾建立索引
@@ -433,6 +485,11 @@ API endpoints：
 - `MEMETALK_OPENAI_API_KEY`
 - `MEMETALK_OPENAI_BASE_URL`
 - `MEMETALK_LMSTUDIO_BASE_URL`
+- `MEMETALK_OLLAMA_BASE_URL`
+- `MEMETALK_LLAMA_CPP_BASE_URL`
+- `MEMETALK_GEMINI_API_KEY`
+- `MEMETALK_CLAUDE_API_KEY`
+- `MEMETALK_CLAUDE_EMBEDDING_PROVIDER`
 - `MEMETALK_SEARCH_CANDIDATE_K`
 - `MEMETALK_SEARCH_TOP_N`
 - `MEMETALK_SEARCH_SCORING_PROFILE_PATH`
