@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from collections import OrderedDict
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from memetalk.core.models import (
     MemeAsset,
+    MemeMetadata,
     OCRStatus,
     QueryAnalysis,
     RerankCandidate,
@@ -17,15 +20,18 @@ from memetalk.core.models import (
     SearchResultDebug,
     SearchTrace,
     SearchScoringProfile,
+    compose_embedding_text,
 )
 from memetalk.core.providers import ProviderBundle
 from memetalk.core.retrieval import (
     build_index_version,
     build_reply_query_text,
     build_semantic_query_text,
+    default_retrieval_weights,
     default_search_scoring_profile,
     lexical_overlap_score,
     ocr_penalty,
+    split_terms,
     template_hint_score,
 )
 from memetalk.storage.sqlite_store import SQLiteMemeRepository
@@ -36,6 +42,7 @@ RERANK_POOL_SIZE = 16
 QUERY_ANALYSIS_CACHE_SIZE = 128
 QUERY_EMBEDDING_CACHE_SIZE = 256
 RERANK_RESULT_CACHE_SIZE = 128
+QUERY_IMAGE_CACHE_SIZE = 64
 DETERMINISTIC_ONLY_REASON = "deterministic-only 排序：使用已調整的規則權重直接排序，未啟用 rerank。"
 
 logger = logging.getLogger(__name__)
@@ -45,6 +52,12 @@ logger = logging.getLogger(__name__)
 class _MergedCandidateState:
     candidate_sources: set[str] = field(default_factory=set)
     feature_scores: dict[str, float] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class _ResolvedSearchInput:
+    effective_query: str
+    query_analysis: QueryAnalysis
 
 
 class SearchService:
@@ -63,26 +76,29 @@ class SearchService:
         self.scoring_profile = scoring_profile or default_search_scoring_profile()
         self._query_analysis_cache: OrderedDict[str, QueryAnalysis] = OrderedDict()
         self._query_embedding_cache: OrderedDict[str, list[float]] = OrderedDict()
+        self._query_image_cache: OrderedDict[str, MemeMetadata] = OrderedDict()
         self._rerank_cache: OrderedDict[str, list] = OrderedDict()
         self._provider_cache_identity = self._build_provider_cache_identity()
 
     def search(
         self,
-        query: str,
+        query: str | None,
         top_n: int,
         candidate_k: int,
         mode: SearchMode = SearchMode.REPLY,
         preferred_tone: str | None = None,
         rerank_enabled: bool = True,
+        query_image_path: Path | None = None,
     ) -> SearchResponse:
         self._ensure_cache_identity()
-        query_analysis = self._get_query_analysis(query, mode, preferred_tone)
+        resolved_query = self._resolve_search_input(query, mode, preferred_tone, query_image_path)
+        query_analysis = resolved_query.query_analysis
         route_scores, search_trace = self._retrieve_candidates(query_analysis, top_n, candidate_k, mode)
         asset_map = self.repository.get_assets_by_ids(list(route_scores.keys()))
         candidates = self._build_candidates(asset_map, route_scores, query_analysis, mode)
         candidates.sort(key=lambda item: item.deterministic_score, reverse=True)
         results, rerank_strategy = self._rerank_or_fallback(
-            query,
+            resolved_query.effective_query,
             query_analysis,
             candidates,
             top_n,
@@ -100,6 +116,162 @@ class SearchService:
             provider_trace=self.providers.trace(),
             search_trace=search_trace,
         )
+
+    def _resolve_search_input(
+        self,
+        query: str | None,
+        mode: SearchMode,
+        preferred_tone: str | None,
+        query_image_path: Path | None,
+    ) -> _ResolvedSearchInput:
+        text_query = (query or "").strip() or None
+        if query_image_path is None:
+            if text_query is None:
+                raise ValueError("Search requires either text query or query image.")
+            return _ResolvedSearchInput(
+                effective_query=text_query,
+                query_analysis=self._get_query_analysis(text_query, mode, preferred_tone),
+            )
+
+        image_metadata = self._get_query_image_metadata(query_image_path)
+        if text_query is None:
+            analysis = self._build_image_query_analysis(image_metadata, mode, preferred_tone, query_image_path.name)
+            effective_query = self._build_image_query_label(image_metadata, query_image_path.name)
+            return _ResolvedSearchInput(effective_query=effective_query, query_analysis=analysis)
+
+        text_analysis = self._get_query_analysis(text_query, mode, preferred_tone)
+        merged_analysis = self._merge_query_analysis_with_image(text_analysis, image_metadata)
+        return _ResolvedSearchInput(effective_query=text_query, query_analysis=merged_analysis)
+
+    def _get_query_image_metadata(self, image_path: Path) -> MemeMetadata:
+        file_hash = self._sha256_file(image_path)
+        cache_key = json.dumps(
+            {
+                "metadata_provider": self.providers.metadata_provider.name,
+                "file_sha256": file_hash,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        cached = self._cache_get(self._query_image_cache, cache_key)
+        if cached is not None:
+            return cached
+        metadata = self.providers.metadata_provider.analyze_image(image_path)
+        self._cache_set(self._query_image_cache, cache_key, metadata, QUERY_IMAGE_CACHE_SIZE)
+        return metadata
+
+    def _build_image_query_analysis(
+        self,
+        image_metadata: MemeMetadata,
+        mode: SearchMode,
+        preferred_tone: str | None,
+        original_query: str,
+    ) -> QueryAnalysis:
+        tone_values = self._merge_values([*image_metadata.style_tags[:1], *image_metadata.aesthetic_tags[:1]])
+        return QueryAnalysis(
+            original_query=original_query,
+            situation=image_metadata.usage_scenario or image_metadata.scene_description or self._build_image_query_label(image_metadata, original_query),
+            emotions=image_metadata.emotion_tags,
+            tone=tone_values[0] if tone_values else "圖片相似查詢",
+            reply_intent=image_metadata.intent_tags[0] if image_metadata.intent_tags else "回應",
+            preferred_tone=preferred_tone,
+            query_embedding_text=compose_embedding_text(image_metadata),
+            query_terms=self._build_image_query_terms(image_metadata),
+            template_hints=self._build_image_template_hints(image_metadata),
+            retrieval_weights=default_retrieval_weights(mode),
+        )
+
+    def _merge_query_analysis_with_image(self, text_analysis: QueryAnalysis, image_metadata: MemeMetadata) -> QueryAnalysis:
+        image_summary = compose_embedding_text(image_metadata)
+        image_context = image_metadata.usage_scenario or image_metadata.scene_description
+        merged_situation = "；".join(
+            part
+            for part in [
+                text_analysis.situation,
+                f"參考圖片：{image_context}" if image_context else "",
+            ]
+            if part and part.strip()
+        )
+        merged_tone_values = self._merge_values(
+            [
+                text_analysis.tone,
+                *image_metadata.style_tags[:1],
+                *image_metadata.aesthetic_tags[:1],
+            ]
+        )
+        return QueryAnalysis(
+            original_query=text_analysis.original_query,
+            situation=merged_situation or text_analysis.situation,
+            emotions=self._merge_values([*text_analysis.emotions, *image_metadata.emotion_tags]),
+            tone="、".join(merged_tone_values) if merged_tone_values else text_analysis.tone,
+            reply_intent=text_analysis.reply_intent or (image_metadata.intent_tags[0] if image_metadata.intent_tags else "回應"),
+            preferred_tone=text_analysis.preferred_tone,
+            query_embedding_text=f"{text_analysis.query_embedding_text}\n參考圖片資訊：\n{image_summary}",
+            query_terms=self._merge_values([*text_analysis.query_terms, *self._build_image_query_terms(image_metadata)]),
+            template_hints=self._merge_values([*text_analysis.template_hints, *self._build_image_template_hints(image_metadata)]),
+            retrieval_weights=text_analysis.retrieval_weights,
+        )
+
+    def _build_image_template_hints(self, image_metadata: MemeMetadata) -> list[str]:
+        return self._merge_values(
+            [
+                image_metadata.template_name or "",
+                image_metadata.template_canonical_id,
+                *image_metadata.template_aliases,
+                image_metadata.template_family,
+            ]
+        )
+
+    def _build_image_query_terms(self, image_metadata: MemeMetadata) -> list[str]:
+        terms: list[str] = []
+        for value in [
+            image_metadata.template_name or "",
+            image_metadata.template_canonical_id,
+            *image_metadata.template_aliases,
+            image_metadata.template_family,
+            image_metadata.ocr_text,
+            *image_metadata.ocr_lines,
+            image_metadata.scene_description,
+            image_metadata.meme_usage,
+            image_metadata.visual_description,
+            image_metadata.usage_scenario,
+            *image_metadata.emotion_tags,
+            *image_metadata.intent_tags,
+            *image_metadata.style_tags,
+            *image_metadata.aesthetic_tags,
+        ]:
+            if not value:
+                continue
+            stripped = value.strip()
+            if not stripped:
+                continue
+            terms.append(stripped)
+            terms.extend(split_terms(stripped))
+        return self._merge_values(terms)[:24]
+
+    def _build_image_query_label(self, image_metadata: MemeMetadata, fallback: str) -> str:
+        for value in [image_metadata.ocr_text, image_metadata.template_name, image_metadata.scene_description, fallback]:
+            if value and value.strip():
+                return value.strip()
+        return "圖片查詢"
+
+    def _merge_values(self, values: list[str]) -> list[str]:
+        seen: set[str] = set()
+        merged: list[str] = []
+        for value in values:
+            normalized = value.strip()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            merged.append(normalized)
+        return merged
+
+    def _sha256_file(self, path: Path) -> str:
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
 
     def _retrieve_candidates(
         self,
@@ -538,6 +710,7 @@ class SearchService:
             return
         self._query_analysis_cache.clear()
         self._query_embedding_cache.clear()
+        self._query_image_cache.clear()
         self._rerank_cache.clear()
         self._provider_cache_identity = current_identity
 

@@ -21,7 +21,10 @@ from memetalk.providers.openai_provider import (
     CompatibleMetadataProvider,
     CompatibleQueryAnalyzer,
     CompatibleReranker,
+    build_gemini_profile,
+    build_llama_cpp_profile,
     build_lmstudio_profile,
+    build_ollama_profile,
     build_openai_profile,
 )
 from memetalk.providers.paddleocr_provider import PaddleOCRProvider
@@ -64,11 +67,14 @@ def _build_local_bundle(_settings: AppSettings) -> ProviderBundle:
     )
 
 
+def _ocr_provider(settings: AppSettings):
+    return MockOCRProvider() if settings.ocr_backend == "mock" else PaddleOCRProvider()
+
+
 def _build_openai_bundle(settings: AppSettings) -> ProviderBundle:
-    ocr_provider = MockOCRProvider() if settings.ocr_backend == "mock" else PaddleOCRProvider()
     profile = build_openai_profile(settings)
     return ProviderBundle(
-        ocr_provider=ocr_provider,
+        ocr_provider=_ocr_provider(settings),
         metadata_provider=CompatibleMetadataProvider(profile),
         embedding_provider=CompatibleEmbeddingProvider(profile),
         query_analyzer=CompatibleQueryAnalyzer(profile),
@@ -77,14 +83,68 @@ def _build_openai_bundle(settings: AppSettings) -> ProviderBundle:
 
 
 def _build_lmstudio_bundle(settings: AppSettings) -> ProviderBundle:
-    ocr_provider = MockOCRProvider() if settings.ocr_backend == "mock" else PaddleOCRProvider()
     profile = build_lmstudio_profile(settings)
     return ProviderBundle(
-        ocr_provider=ocr_provider,
+        ocr_provider=_ocr_provider(settings),
         metadata_provider=CompatibleMetadataProvider(profile),
         embedding_provider=CompatibleEmbeddingProvider(profile),
         query_analyzer=CompatibleQueryAnalyzer(profile),
         reranker=CompatibleReranker(profile),
+    )
+
+
+def _build_ollama_bundle(settings: AppSettings) -> ProviderBundle:
+    profile = build_ollama_profile(settings)
+    return ProviderBundle(
+        ocr_provider=_ocr_provider(settings),
+        metadata_provider=CompatibleMetadataProvider(profile),
+        embedding_provider=CompatibleEmbeddingProvider(profile),
+        query_analyzer=CompatibleQueryAnalyzer(profile),
+        reranker=CompatibleReranker(profile),
+    )
+
+
+def _build_llama_cpp_bundle(settings: AppSettings) -> ProviderBundle:
+    profile = build_llama_cpp_profile(settings)
+    return ProviderBundle(
+        ocr_provider=_ocr_provider(settings),
+        metadata_provider=CompatibleMetadataProvider(profile),
+        embedding_provider=CompatibleEmbeddingProvider(profile),
+        query_analyzer=CompatibleQueryAnalyzer(profile),
+        reranker=CompatibleReranker(profile),
+    )
+
+
+def _build_gemini_bundle(settings: AppSettings) -> ProviderBundle:
+    profile = build_gemini_profile(settings)
+    return ProviderBundle(
+        ocr_provider=_ocr_provider(settings),
+        metadata_provider=CompatibleMetadataProvider(profile),
+        embedding_provider=CompatibleEmbeddingProvider(profile),
+        query_analyzer=CompatibleQueryAnalyzer(profile),
+        reranker=CompatibleReranker(profile),
+    )
+
+
+def _build_claude_bundle(settings: AppSettings) -> ProviderBundle:
+    from memetalk.providers.anthropic_provider import (
+        AnthropicMetadataProvider,
+        AnthropicQueryAnalyzer,
+        AnthropicReranker,
+    )
+
+    # Claude 沒有 embedding API，需借用 OpenAI 或 Gemini 的 embedding provider
+    if settings.claude_embedding_provider == "gemini":
+        embedding_profile = build_gemini_profile(settings)
+    else:
+        embedding_profile = build_openai_profile(settings)
+
+    return ProviderBundle(
+        ocr_provider=_ocr_provider(settings),
+        metadata_provider=AnthropicMetadataProvider(settings),
+        embedding_provider=CompatibleEmbeddingProvider(embedding_profile),
+        query_analyzer=AnthropicQueryAnalyzer(settings),
+        reranker=AnthropicReranker(settings),
     )
 
 
@@ -94,6 +154,10 @@ def build_default_registry() -> ProviderRegistry:
     registry.register("local", _build_local_bundle)
     registry.register("openai", _build_openai_bundle)
     registry.register("lmstudio", _build_lmstudio_bundle)
+    registry.register("ollama", _build_ollama_bundle)
+    registry.register("llama_cpp", _build_llama_cpp_bundle)
+    registry.register("gemini", _build_gemini_bundle)
+    registry.register("claude", _build_claude_bundle)
     return registry
 
 

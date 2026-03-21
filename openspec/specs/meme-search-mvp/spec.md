@@ -58,7 +58,10 @@
 ### REQ-MVP-004 Query Understanding and Vector Retrieval
 - The system MUST expose `POST /api/v1/search`.
 - Search input MUST support an optional user-provided preferred meme tone hint.
+- Search input MUST support text-only, image-only, and mixed text+image queries.
+- When an image query is provided, the system MUST analyze the query image through the metadata provider and convert it into retrieval inputs without requiring the image to be pre-indexed first.
 - Search input MUST be analyzed into structured query fields: situation, emotion, tone, reply intent, query terms, template hints, retrieval weights, and preferred meme tone.
+- For image queries, structured query analysis MUST incorporate image-derived cues including OCR text, template hints, scene description, meme usage, and visual-description signals.
 - Search MUST support two search modes via a `mode` field (`semantic` | `reply`, default `reply`):
   - **semantic**: finds memes whose overall meaning is close to the query.
   - **reply**: finds memes suitable as a witty reply to the query; OCR text weight is dominant.
@@ -72,6 +75,7 @@
 - In `reply` mode, OCR keyword/template retrieval and the `reply_text` channel MUST be the primary routes; the semantic channel MUST be treated as a supplemental backfill route only.
 - Search MUST merge, deduplicate, and score candidates from all enabled retrieval routes before reranking.
 - Search MUST generate route-specific retrieval inputs from query analysis rather than relying on a single query embedding string as the only retrieval artifact.
+- When both text and image query inputs are present, the retrieval inputs MUST merge user text intent with image-derived metadata instead of dropping either source.
 - Search SHOULD batch query embedding generation across active retrieval routes within a single search request when those routes use the same embedding provider.
 - Search SHOULD reuse in-memory cached query analysis, query embeddings, and rerank outputs for repeated identical searches within the same process when the provider configuration has not changed.
 - Search output MUST include `query_analysis`, `results`, `provider_trace`, and a minimal `search_trace` showing candidate-source and degradation information.
@@ -90,6 +94,8 @@
 ### REQ-MVP-006 FastAPI Contract
 - The API MUST expose `GET /api/v1/health`.
 - The API MUST expose an image asset endpoint addressable by `image_id`.
+- `POST /api/v1/search` MUST accept JSON search requests containing text input, base64-encoded image input, or both.
+- `POST /api/v1/search` MUST reject requests that provide neither text nor image input.
 - The API MUST not require Streamlit to access SQLite directly.
 
 ### REQ-MVP-007 Streamlit Unified Frontend
@@ -100,8 +106,9 @@
   - **Dashboard** (`streamlit_app.py`): system status overview showing current provider, vector backend, indexed meme count, and a health check.
   - **Settings** (`pages/1_⚙️_Settings.py`): provider selection (openai / lmstudio / mock), API key input, base URL, model configuration, vector backend, OCR backend, and a persisted default meme folder path. Settings MUST be persisted to a TOML file (`data/memetalk_config.toml`).
   - **Index** (`pages/2_📦_Index.py`): meme folder path input seeded from the saved default meme folder, optional force-reindex toggle, progress display, and result summary (processed / indexed / skipped / failed counts with error details).
-  - **Search** (`pages/3_🔍_Search.py`): search mode selector (適合回覆 / 契合語意), natural-language query input, query analysis display, top-N result cards with images loaded from local file paths, recommended reason text, and visible emotion and intent tags.
+  - **Search** (`pages/3_🔍_Search.py`): search mode selector (適合回覆 / 契合語意), natural-language query input, optional query image uploader with preview, query analysis display, top-N result cards with images loaded from local file paths, recommended reason text, and visible emotion and intent tags.
 - The Search page MUST include an optional input for preferred meme tone (for example 嘴砲, 冷淡, 可憐, 陰陽怪氣) and pass that preference into query analysis and reranking.
+- The Search page MUST allow searches to run when only a query image is provided, and MUST show a validation error only when both text and image inputs are absent.
 - Settings MUST support a priority chain: environment variables > TOML config file > pydantic defaults.
 - Settings persistence MUST merge submitted values with the existing persisted settings and MUST NOT clear unrelated stored fields such as `meme_folder` during a partial update.
 - The Index page MUST treat its meme folder input as a per-run override only; editing that field in the page MUST NOT automatically rewrite the saved default meme folder path.
@@ -114,15 +121,23 @@
   - OCR via `extract_text` (optional; may be integrated into the metadata provider)
   - metadata analysis via `analyze_image(image_path, ocr_hint=None)` which MUST return unified metadata including OCR fields, visual description, aesthetic tags, usage scenario, and all traditional metadata fields
   - embeddings via `embed_texts`
-  - query analysis via `analyze_query(query, mode, preferred_tone=None)`
-  - reranking via `rerank(query, query_analysis, candidates, top_n, mode)`
+- query analysis via `analyze_query(query, mode, preferred_tone=None)`
+- reranking via `rerank(query, query_analysis, candidates, top_n, mode)`
+- Query-image search flows MUST reuse the metadata provider plus embedding provider path and MUST NOT require a separate provider interface only for uploaded query images.
 - OpenAI MUST be the default cloud provider configuration.
 - The OpenAI-backed provider path MUST support OpenAI-compatible chat, vision, and embedding endpoints through configurable base URL and model settings.
+- The system MUST support the following provider backends: `openai`, `lmstudio`, `ollama`, `llama_cpp`, `gemini`, `claude`, `mock`, `local`.
+- Ollama, llama.cpp, and Gemini backends MUST reuse the OpenAI-compatible provider path with appropriate default base URLs and model mappings:
+  - Ollama: default base URL `http://localhost:11434/v1`, default models `llama3` (chat), `llava` (vision), `nomic-embed-text` (embedding).
+  - llama.cpp: default base URL `http://localhost:8080/v1`, model determined by server-loaded model.
+  - Gemini: OpenAI-compatible endpoint at `https://generativelanguage.googleapis.com/v1beta/openai/`, default models `gemini-2.0-flash` (chat/vision), `text-embedding-004` (embedding).
+- The Claude backend MUST use the Anthropic SDK for chat, vision, query analysis, and reranking; embedding MUST be delegated to a configurable secondary provider (`openai` or `gemini`) since Anthropic does not offer an embedding API.
 - The repository MUST provide a documented local provider configuration for LM Studio without changing application code.
 - The repository MUST pin and document a known-good PaddleOCR runtime for Windows CPU environments; the validated MVP combination is `paddleocr==2.10.0` with `paddlepaddle==3.1.1`.
 - OpenAI-compatible local provider failures MUST surface actionable guidance when required chat, vision, or embedding models are not available.
 - PaddleOCR runtime failures caused by known Windows CPU inference incompatibilities MUST surface actionable guidance instead of only returning the raw Paddle error.
 - OpenAI-compatible structured outputs MUST retry or repair recoverable malformed JSON before failing a request.
+- Anthropic-backed structured outputs MUST retry or repair recoverable malformed JSON before failing a request.
 - The codebase MUST include a local/mock-friendly provider path so tests can run without external services.
 
 ### REQ-MVP-009 Evaluation Pipeline
@@ -133,5 +148,5 @@
 - The tuning objective MUST penalize hard-negative hits in addition to improving retrieval relevance metrics.
 
 ## Acceptance
-- The project MUST include automated tests covering schema validation, embedding text composition, provider registry, OCR success/empty/failure branching, template normalization, multi-route retrieval, rerank fallback, index schema/version isolation, evaluation reporting, indexing, and API response shape.
+- The project MUST include automated tests covering schema validation, embedding text composition, provider registry, OCR success/empty/failure branching, template normalization, multi-route retrieval, rerank fallback, index schema/version isolation, evaluation reporting, indexing, image-query search, and API response shape.
 - A minimal dataset of static images MUST be indexable and searchable end-to-end without changing code.

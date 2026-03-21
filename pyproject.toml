@@ -26,6 +26,9 @@ dev = [
 openai = [
   "openai>=1.52,<2",
 ]
+anthropic = [
+  "anthropic>=0.52,<1",
+]
 chroma = [
   "chromadb>=1.5.3,<2",
 ]

@@ -1,3 +1,4 @@
+import base64
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -85,6 +86,41 @@ def test_asset_endpoint_serves_indexed_image(tmp_path: Path) -> None:
 
     assert asset_response.status_code == 200
     assert asset_response.headers["content-type"].startswith("image/")
+
+
+def test_search_endpoint_accepts_image_only_query(tmp_path: Path) -> None:
+    container = _build_container(tmp_path)
+    client = TestClient(create_app(container=container))
+    query_image = tmp_path / "friends_late_text_reference.png"
+    _create_image(query_image, (100, 100, 100))
+
+    response = client.post(
+        "/api/v1/search",
+        json={
+            "query_image_base64": base64.b64encode(query_image.read_bytes()).decode("utf-8"),
+            "query_image_filename": query_image.name,
+            "query_image_media_type": "image/png",
+            "top_n": 3,
+            "candidate_k": 8,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["results"]
+    assert payload["query_analysis"]["query_terms"]
+
+
+def test_search_endpoint_rejects_missing_text_and_image(tmp_path: Path) -> None:
+    container = _build_container(tmp_path)
+    client = TestClient(create_app(container=container))
+
+    response = client.post(
+        "/api/v1/search",
+        json={"query": "   ", "top_n": 3, "candidate_k": 8},
+    )
+
+    assert response.status_code == 422
 
 
 def test_search_falls_back_when_reranker_fails(tmp_path: Path) -> None:

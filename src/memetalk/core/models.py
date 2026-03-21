@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class SearchMode(str, Enum):
@@ -252,7 +252,10 @@ class SearchResponse(BaseModel):
 
 
 class SearchRequest(BaseModel):
-    query: str = Field(min_length=1)
+    query: str | None = None
+    query_image_base64: str | None = None
+    query_image_filename: str | None = None
+    query_image_media_type: str | None = None
     top_n: int = Field(default=6, ge=1, le=10)
     candidate_k: int = Field(default=20, ge=1, le=30)
     mode: SearchMode = SearchMode.REPLY
@@ -260,11 +263,19 @@ class SearchRequest(BaseModel):
 
     @field_validator("query")
     @classmethod
-    def trim_query(cls, value: str) -> str:
+    def trim_query(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         trimmed = value.strip()
-        if not trimmed:
-            raise ValueError("Query must not be blank.")
-        return trimmed
+        return trimmed or None
+
+    @field_validator("query_image_base64", "query_image_filename", "query_image_media_type", mode="before")
+    @classmethod
+    def trim_optional_input(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        trimmed = value.strip()
+        return trimmed or None
 
     @field_validator("preferred_tone", mode="before")
     @classmethod
@@ -273,6 +284,12 @@ class SearchRequest(BaseModel):
             return None
         trimmed = value.strip()
         return trimmed or None
+
+    @model_validator(mode="after")
+    def validate_input_sources(self) -> "SearchRequest":
+        if self.query is None and self.query_image_base64 is None:
+            raise ValueError("Search request must include either text query or query image.")
+        return self
 
 
 class IndexErrorRecord(BaseModel):

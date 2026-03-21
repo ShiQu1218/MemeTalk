@@ -43,7 +43,7 @@ if flash_message:
 render_section("Provider 與模型", "先決定本次執行要用哪個 Provider，相關模型設定會一起保留。")
 left_col, right_col = st.columns((1.45, 0.95))
 
-provider_options = ["openai", "lmstudio", "mock"]
+provider_options = ["openai", "lmstudio", "ollama", "llama_cpp", "gemini", "claude", "mock"]
 vector_options = ["chroma", "memory"]
 ocr_options = ["paddleocr", "mock"]
 
@@ -59,6 +59,7 @@ with left_col:
             openai_chat_model = model_col1.text_input("Chat Model", value=settings.openai_chat_model)
             openai_vision_model = model_col2.text_input("Vision Model", value=settings.openai_vision_model)
             openai_embedding_model = model_col3.text_input("Embedding Model", value=settings.openai_embedding_model)
+
         elif provider_backend == "lmstudio":
             lmstudio_base_url = st.text_input("LM Studio Base URL", value=settings.lmstudio_base_url)
             lmstudio_api_key = st.text_input("LM Studio API Key", value=settings.lmstudio_api_key or "", type="password")
@@ -66,6 +67,45 @@ with left_col:
             lmstudio_chat_model = model_col1.text_input("Chat Model", value=settings.lmstudio_chat_model or "")
             lmstudio_vision_model = model_col2.text_input("Vision Model", value=settings.lmstudio_vision_model or "")
             lmstudio_embedding_model = model_col3.text_input("Embedding Model", value=settings.lmstudio_embedding_model or "")
+
+        elif provider_backend == "ollama":
+            render_notice("Ollama", "使用本機 Ollama 服務，需先安裝並啟動 Ollama。", tone="info")
+            ollama_base_url = st.text_input("Ollama Base URL", value=settings.ollama_base_url)
+            model_col1, model_col2, model_col3 = st.columns(3)
+            ollama_chat_model = model_col1.text_input("Chat Model", value=settings.ollama_chat_model or "", placeholder="llama3")
+            ollama_vision_model = model_col2.text_input("Vision Model", value=settings.ollama_vision_model or "", placeholder="llava")
+            ollama_embedding_model = model_col3.text_input("Embedding Model", value=settings.ollama_embedding_model or "", placeholder="nomic-embed-text")
+
+        elif provider_backend == "llama_cpp":
+            render_notice("llama.cpp", "使用本機 llama.cpp server，模型由 server 載入決定。", tone="info")
+            llama_cpp_base_url = st.text_input("llama.cpp Base URL", value=settings.llama_cpp_base_url)
+
+        elif provider_backend == "gemini":
+            render_notice("Gemini", "使用 Google Gemini API，透過 OpenAI 相容端點。", tone="info")
+            gemini_api_key = st.text_input("Gemini API Key", value=settings.gemini_api_key or "", type="password")
+            model_col1, model_col2 = st.columns(2)
+            gemini_chat_model = model_col1.text_input("Chat / Vision Model", value=settings.gemini_chat_model)
+            gemini_embedding_model = model_col2.text_input("Embedding Model", value=settings.gemini_embedding_model)
+
+        elif provider_backend == "claude":
+            render_notice(
+                "Claude",
+                "使用 Anthropic Claude API。Claude 不提供 Embedding，需搭配 OpenAI 或 Gemini 的 embedding。",
+                tone="info",
+            )
+            claude_api_key = st.text_input("Claude API Key", value=settings.claude_api_key or "", type="password")
+            model_col1, model_col2 = st.columns(2)
+            claude_chat_model = model_col1.text_input("Chat Model", value=settings.claude_chat_model)
+            claude_vision_model = model_col2.text_input("Vision Model", value=settings.claude_vision_model)
+            claude_embedding_options = ["openai", "gemini"]
+            claude_emb_idx = claude_embedding_options.index(settings.claude_embedding_provider) if settings.claude_embedding_provider in claude_embedding_options else 0
+            claude_embedding_provider = st.selectbox(
+                "Embedding 來源",
+                claude_embedding_options,
+                index=claude_emb_idx,
+                help="Claude 沒有 embedding API，需借用其他服務。請確認對應的 API Key 與模型已設定。",
+            )
+
         else:
             render_notice("Mock 模式", "適合先驗證 UI 與流程，不需要外部 API。", tone="info")
 
@@ -142,6 +182,46 @@ if st.button("儲存設定", type="primary", use_container_width=True):
                 "lmstudio_chat_model": _clean_optional_text(lmstudio_chat_model),
                 "lmstudio_vision_model": _clean_optional_text(lmstudio_vision_model),
                 "lmstudio_embedding_model": _clean_optional_text(lmstudio_embedding_model),
+            }
+        )
+    elif provider_backend == "ollama":
+        fallback_settings = AppSettings()
+        updates.update(
+            {
+                "ollama_base_url": _clean_required_text(
+                    ollama_base_url.rstrip("/"),
+                    settings.ollama_base_url or fallback_settings.ollama_base_url,
+                ),
+                "ollama_chat_model": _clean_optional_text(ollama_chat_model),
+                "ollama_vision_model": _clean_optional_text(ollama_vision_model),
+                "ollama_embedding_model": _clean_optional_text(ollama_embedding_model),
+            }
+        )
+    elif provider_backend == "llama_cpp":
+        fallback_settings = AppSettings()
+        updates.update(
+            {
+                "llama_cpp_base_url": _clean_required_text(
+                    llama_cpp_base_url.rstrip("/"),
+                    settings.llama_cpp_base_url or fallback_settings.llama_cpp_base_url,
+                ),
+            }
+        )
+    elif provider_backend == "gemini":
+        updates.update(
+            {
+                "gemini_api_key": _clean_optional_text(gemini_api_key),
+                "gemini_chat_model": _clean_required_text(gemini_chat_model, settings.gemini_chat_model),
+                "gemini_embedding_model": _clean_required_text(gemini_embedding_model, settings.gemini_embedding_model),
+            }
+        )
+    elif provider_backend == "claude":
+        updates.update(
+            {
+                "claude_api_key": _clean_optional_text(claude_api_key),
+                "claude_chat_model": _clean_required_text(claude_chat_model, settings.claude_chat_model),
+                "claude_vision_model": _clean_required_text(claude_vision_model, settings.claude_vision_model),
+                "claude_embedding_provider": claude_embedding_provider,
             }
         )
 

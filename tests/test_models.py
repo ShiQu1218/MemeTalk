@@ -67,13 +67,20 @@ def test_template_normalization_groups_aliases_to_same_canonical_id() -> None:
     assert right[2] == "anime"
 
 
-def test_search_request_rejects_blank_query() -> None:
+def test_search_request_rejects_missing_text_and_image() -> None:
     try:
         SearchRequest(query="   ")
     except ValueError as exc:
-        assert "blank" in str(exc).lower()
+        assert "text query or query image" in str(exc)
     else:
-        raise AssertionError("Blank queries must fail validation.")
+        raise AssertionError("Search requests without text or image must fail validation.")
+
+
+def test_search_request_allows_image_only_input() -> None:
+    request = SearchRequest(query="   ", query_image_base64="ZGF0YQ==")
+
+    assert request.query is None
+    assert request.query_image_base64 == "ZGF0YQ=="
 
 
 def test_search_request_trims_optional_preferred_tone() -> None:

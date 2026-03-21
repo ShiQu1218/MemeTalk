@@ -220,6 +220,42 @@ def test_preferred_tone_biases_reply_ranking(tmp_path: Path) -> None:
     assert response.results[0].debug.feature_scores["preferred_tone_match"] > 0
 
 
+def test_image_only_search_uses_uploaded_image_metadata(tmp_path: Path) -> None:
+    container = _build_container(tmp_path)
+    query_image = tmp_path / "AnimeReaction_text_reference.png"
+    _create_image(query_image, (128, 128, 128))
+
+    response = container.search_service.search(
+        query=None,
+        top_n=2,
+        candidate_k=4,
+        mode=SearchMode.REPLY,
+        query_image_path=query_image,
+    )
+
+    assert response.results
+    assert response.results[0].template_name == "AnimeReaction text"
+    assert "anime" in response.query_analysis.query_terms
+    assert "keyword" in response.search_trace.routes_used
+
+
+def test_mixed_text_and_image_query_merges_image_hints_into_analysis(tmp_path: Path) -> None:
+    container = _build_container(tmp_path)
+    query_image = tmp_path / "AnimeReaction_text_reference.png"
+    _create_image(query_image, (64, 64, 64))
+
+    response = container.search_service.search(
+        query="給我更嘴一點的回覆圖",
+        top_n=2,
+        candidate_k=4,
+        mode=SearchMode.REPLY,
+        query_image_path=query_image,
+    )
+
+    assert "參考圖片資訊" in response.query_analysis.query_embedding_text
+    assert any("AnimeReaction" in hint for hint in response.query_analysis.template_hints)
+
+
 def test_repeated_identical_searches_reuse_cached_query_artifacts(tmp_path: Path) -> None:
     container = _build_container(tmp_path)
     providers = container.providers

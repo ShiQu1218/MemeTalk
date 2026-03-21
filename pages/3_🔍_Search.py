@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
+
 import streamlit as st
 
 from memetalk.app.container import build_container
+from memetalk.app.query_image import temporary_query_image
 from memetalk.app.settings_io import load_settings
 from memetalk.app.ui import render_notice, render_section, setup_page
 from memetalk.core.models import SearchMode
@@ -11,9 +14,9 @@ setup_page(
     page_title="MemeTalk - 搜尋",
     page_icon="🔍",
     title="搜尋梗圖",
-    subtitle="輸入情境、對話或語氣偏好，讓系統回傳比較能直接拿來用的梗圖。",
+    subtitle="輸入情境、對話或上傳參考圖片，讓系統回傳比較能直接拿來用的梗圖。",
     eyebrow="Search",
-    chips=("Reply Mode", "Semantic Mode", "Preferred Tone"),
+    chips=("Reply Mode", "Semantic Mode", "Preferred Tone", "Image Query"),
 )
 
 
@@ -31,25 +34,41 @@ with st.container(border=True):
     mode_label = st.radio("搜尋模式", list(_MODE_OPTIONS.keys()), horizontal=True)
     search_mode = _MODE_OPTIONS[mode_label]
     query = st.text_area("想回什麼情境？", height=120, placeholder="例如：朋友說快到了但其實根本還沒出門")
+    uploaded_image = st.file_uploader(
+        "參考圖片（可選）",
+        type=["png", "jpg", "jpeg", "webp"],
+        help="可單獨上傳圖片搜尋，也可以搭配文字一起查。",
+    )
+    if uploaded_image is not None:
+        st.image(uploaded_image.getvalue(), caption="查詢圖片預覽", use_container_width=True)
     preferred_tone = st.text_input(
         "偏好的梗圖語氣（可選）",
         placeholder="例如：嘴砲、冷淡、可憐、陰陽怪氣",
     )
 
 if st.button("搜尋梗圖", type="primary", use_container_width=True):
-    if not query.strip():
-        st.warning("請先輸入查詢內容。")
+    if not query.strip() and uploaded_image is None:
+        st.warning("請先輸入查詢內容，或上傳一張參考圖片。")
     else:
         try:
-            with st.spinner("搜尋中..."):
-                container = _get_container()
-                response = container.search_service.search(
-                    query=query,
-                    top_n=container.settings.search_top_n_default,
-                    candidate_k=container.settings.search_candidate_k_default,
-                    mode=search_mode,
-                    preferred_tone=preferred_tone,
+            image_context = nullcontext(None)
+            if uploaded_image is not None:
+                image_context = temporary_query_image(
+                    uploaded_image.getvalue(),
+                    filename=uploaded_image.name,
+                    media_type=uploaded_image.type,
                 )
+            with image_context as query_image_path:
+                with st.spinner("搜尋中..."):
+                    container = _get_container()
+                    response = container.search_service.search(
+                        query=query,
+                        top_n=container.settings.search_top_n_default,
+                        candidate_k=container.settings.search_candidate_k_default,
+                        mode=search_mode,
+                        preferred_tone=preferred_tone,
+                        query_image_path=query_image_path,
+                    )
 
             render_section("查詢分析", "把系統理解到的情境、情緒與語氣拆開顯示，方便判斷是否找對方向。")
             analysis = response.query_analysis

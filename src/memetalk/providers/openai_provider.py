@@ -86,6 +86,39 @@ def build_lmstudio_profile(settings: AppSettings) -> CompatibleProviderProfile:
     )
 
 
+def build_ollama_profile(settings: AppSettings) -> CompatibleProviderProfile:
+    return CompatibleProviderProfile(
+        label="ollama",
+        base_url=settings.ollama_base_url,
+        api_key="ollama",
+        chat_model=settings.ollama_chat_model or "llama3",
+        vision_model=settings.ollama_vision_model or "llava",
+        embedding_model=settings.ollama_embedding_model or "nomic-embed-text",
+    )
+
+
+def build_llama_cpp_profile(settings: AppSettings) -> CompatibleProviderProfile:
+    return CompatibleProviderProfile(
+        label="llama_cpp",
+        base_url=settings.llama_cpp_base_url,
+        api_key="no-key",
+        chat_model="default",
+        vision_model="default",
+        embedding_model="default",
+    )
+
+
+def build_gemini_profile(settings: AppSettings) -> CompatibleProviderProfile:
+    return CompatibleProviderProfile(
+        label="gemini",
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+        api_key=settings.gemini_api_key,
+        chat_model=settings.gemini_chat_model,
+        vision_model=settings.gemini_chat_model,
+        embedding_model=settings.gemini_embedding_model,
+    )
+
+
 class _OpenAICompatibleBase:
     def __init__(self, profile: CompatibleProviderProfile) -> None:
         self.profile = profile
