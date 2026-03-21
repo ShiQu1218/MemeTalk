@@ -42,6 +42,8 @@
 - OCR degradation events MUST be recorded in `index_runs` without aborting the batch.
 - Metadata or embedding failures for one image MUST be recorded in `index_runs` and MUST NOT abort the batch.
 - Canonical metadata MUST be stored in SQLite and vector documents MUST be stored in Chroma-compatible storage.
+- ChromaDB HNSW index read failures (corrupted or missing index files) MUST be caught at the vector store layer and MUST return empty results with a logged warning instead of propagating an unhandled exception.
+- Vector retrieval route failures during search MUST degrade gracefully per-route (returning zero candidates for the failed route) and MUST be recorded in `search_trace.degraded_routes` instead of aborting the entire search request.
 - The indexer MUST store per-channel vector documents with an index schema/version boundary derived from provider/model/dimension/channel so incompatible embedding versions do not share the same vector collection or query surface.
 - The indexer MUST maintain a keyword-searchable representation of template aliases, OCR text, and retrieval tags for lexical retrieval.
 

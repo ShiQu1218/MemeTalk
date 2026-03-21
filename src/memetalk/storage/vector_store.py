@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import math
 from abc import ABC, abstractmethod
 from pathlib import Path
 
 from memetalk.core.models import EmbeddingDocument, SearchMatch
+
+logger = logging.getLogger(__name__)
 
 
 def _cosine_similarity(left: list[float], right: list[float]) -> float:
@@ -141,7 +144,21 @@ class ChromaVectorStore(VectorStore):
             filters["channel"] = channel
         if filters:
             query_kwargs["where"] = filters
-        response = collection.query(**query_kwargs)
+        try:
+            response = collection.query(**query_kwargs)
+        except Exception as exc:
+            error_message = str(exc)
+            if "hnsw" in error_message.lower() or "Nothing found on disk" in error_message:
+                logger.warning(
+                    "ChromaDB HNSW index corrupted or missing for collection %s "
+                    "(index_version=%s): %s. Returning empty results. "
+                    "Re-index to rebuild the vector store.",
+                    self._collection_key(index_version),
+                    index_version,
+                    error_message,
+                )
+                return []
+            raise
         ids = response.get("ids", [[]])[0]
         distances = response.get("distances", [[]])[0]
         metadatas = response.get("metadatas", [[]])[0]

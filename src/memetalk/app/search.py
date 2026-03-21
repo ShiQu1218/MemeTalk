@@ -135,6 +135,7 @@ class SearchService:
         if reply_query_text is not None:
             query_texts["reply_text"] = reply_query_text
         query_vectors = self._embed_query_texts(query_texts)
+        degraded_routes: list[str] = []
         if reply_query_text is not None:
             reply_vector = query_vectors["reply_text"]
             reply_index_version = build_index_version(
@@ -143,12 +144,17 @@ class SearchService:
                 "reply_text",
             )
             index_versions["reply_text"] = reply_index_version
-            reply_matches = self.vector_store.query(
-                reply_vector,
-                top_k=limit,
-                channel="reply_text",
-                index_version=reply_index_version,
-            )
+            try:
+                reply_matches = self.vector_store.query(
+                    reply_vector,
+                    top_k=limit,
+                    channel="reply_text",
+                    index_version=reply_index_version,
+                )
+            except Exception:
+                logger.warning("reply_text vector route failed, degrading gracefully", exc_info=True)
+                reply_matches = []
+                degraded_routes.append("reply_text")
             self._merge_matches(merged, reply_matches, "reply_text", "reply_vector")
             routes_used.append("reply_text")
             candidate_counts["reply_text"] = len(reply_matches)
@@ -159,12 +165,17 @@ class SearchService:
             "semantic",
         )
         index_versions["semantic"] = semantic_index_version
-        semantic_matches = self.vector_store.query(
-            semantic_vector,
-            top_k=semantic_limit,
-            channel="semantic",
-            index_version=semantic_index_version,
-        )
+        try:
+            semantic_matches = self.vector_store.query(
+                semantic_vector,
+                top_k=semantic_limit,
+                channel="semantic",
+                index_version=semantic_index_version,
+            )
+        except Exception:
+            logger.warning("semantic vector route failed, degrading gracefully", exc_info=True)
+            semantic_matches = []
+            degraded_routes.append("semantic")
         self._merge_matches(merged, semantic_matches, "semantic", "semantic_vector")
         routes_used.append("semantic")
         candidate_counts["semantic"] = len(semantic_matches)
@@ -185,6 +196,7 @@ class SearchService:
                 routes_used=routes_used,
                 candidate_counts=candidate_counts,
                 index_versions=index_versions,
+                degraded_routes=degraded_routes,
             ),
         )
 
