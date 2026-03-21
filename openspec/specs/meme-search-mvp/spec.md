@@ -69,6 +69,7 @@
 ### REQ-MVP-005 LLM Reranking and Reasoning
 - Retrieved candidates MUST be reranked before final output when a reranker is available.
 - Retrieved candidates MUST first receive deterministic feature scores before LLM reranking, including lexical OCR overlap, template matches, tag overlaps, vector scores, and reply-mode OCR gating.
+- The deterministic feature scoring profile SHOULD be serializable to JSON so it can be tuned offline and reused at runtime.
 - Reranking MUST respect the search mode:
   - **reply** mode: OCR text (`ocr_text`) and reply fitness are the primary ranking signals; candidates with `ocr_status != success` MUST be explicitly downgraded and MUST NOT compete at the same score tier as candidates with successful OCR unless no better OCR-backed candidates exist.
   - **semantic** mode: overall semantic similarity, scene description, and tag overlap are the primary ranking criteria.
@@ -114,6 +115,8 @@
 - The repository MUST provide an offline evaluation pipeline over a fixed query set with positives and hard negatives.
 - The evaluation pipeline MUST report at least `precision_at_k` and `mrr`.
 - The evaluation fixtures MUST cover reply queries, semantic queries, template-driven queries, OCR phrase queries, and reaction/no-text queries.
+- The repository MUST provide an offline tuning command `eval tune --cases <file> [--output <file>]` that optimizes the deterministic scoring profile against the evaluation cases and writes the tuned profile to JSON.
+- The tuning objective MUST penalize hard-negative hits in addition to improving retrieval relevance metrics.
 
 ## Acceptance
 - The project MUST include automated tests covering schema validation, embedding text composition, provider registry, OCR success/empty/failure branching, template normalization, multi-route retrieval, rerank fallback, index schema/version isolation, evaluation reporting, indexing, and API response shape.

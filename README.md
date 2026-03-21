@@ -1,231 +1,443 @@
 # MemeTalk
 
-MemeTalk 是一個本機單機版的梗圖語意搜尋系統。它會把靜態圖片做 OCR、影像語意分析、embedding 建立與索引儲存，並透過 Streamlit 多頁面介面提供一站式的設定、索引與搜尋體驗。
+MemeTalk 是一個本機單機版的梗圖搜尋系統。它把靜態圖片轉成可檢索的結構化資料與向量資料，支援兩種主要任務：
 
-## 專案目標
+- `reply`：找一張適合直接拿來回嘴、吐槽、附和、裝可憐的梗圖
+- `semantic`：找整體語意、情境、情緒接近的梗圖
 
-- 讓一批梗圖圖片可被自然語言搜尋。
-- 把每張圖片整理成統一 metadata schema。
-- 同時保留結構化資料與向量資料，讓搜尋結果可以解釋為什麼推薦這張圖。
-- 支援 OpenAI 與 OpenAI-compatible provider，包含 LM Studio。
+目前專案以 OpenSpec 作為 source of truth，規格定義在 [`openspec/specs/meme-search-mvp/spec.md`](openspec/specs/meme-search-mvp/spec.md)。
 
-## 快速開始
+## 核心原理
 
-```bash
-pip install -e .[dev,openai,chroma]
-streamlit run streamlit_app.py
+MemeTalk 的重點不是只做「單一向量搜尋」，而是把梗圖拆成幾種不同訊號，再在搜尋時重新組合：
+
+1. `OCR 文字`
+   - 回覆型梗圖最重要的訊號。
+   - 決定這張圖能不能直接拿來回一句話。
+2. `模板資訊`
+   - 例如 `AnimeReaction`、`anime_reaction` 會正規化成同一組 template family。
+3. `場景與用途`
+   - 圖片裡發生什麼事，通常拿來表達什麼。
+4. `情緒 / 意圖 / 風格`
+   - 例如傻眼、吐槽、冷幽默、裝可憐。
+5. `使用者查詢偏好`
+   - 除了原始 query，搜尋頁還能指定偏好的梗圖語氣，例如嘴砲、冷淡、陰陽怪氣。
+
+搜尋時不會只走一條路，而是做多路召回：
+
+- `semantic` 向量路徑
+- `reply_text` 向量路徑
+- SQLite FTS5 keyword / template 路徑
+
+之後再做：
+
+- 候選合併與去重
+- deterministic feature scoring
+- LLM rerank（可用時）
+
+這樣做的原因很直接：
+
+- 背景語意適合找「主題相近」
+- OCR 文字適合找「能直接回覆」
+- template / keyword 適合找「那張梗圖」
+
+三者混成單一路徑，精確度通常會掉。
+
+## 架構總覽
+
+```text
+Streamlit UI / CLI / FastAPI
+        |
+        v
+   AppContainer
+        |
+        +-- IndexingService
+        |     +-- OCRProvider
+        |     +-- MetadataProvider
+        |     +-- EmbeddingProvider
+        |     +-- SQLiteMemeRepository
+        |     +-- VectorStore
+        |
+        +-- SearchService
+        |     +-- QueryAnalyzer
+        |     +-- SQLite FTS keyword retrieval
+        |     +-- semantic / reply_text vector retrieval
+        |     +-- deterministic scoring
+        |     +-- Reranker
+        |
+        +-- EvaluationService
+              +-- eval run
+              +-- eval tune
 ```
 
-若要使用 PaddleOCR backend，請使用專案虛擬環境並安裝固定 OCR 依賴：
+### 主要模組
+
+- `src/memetalk/app/indexer.py`
+  - 建立索引、記錄 warning / error、寫入 SQLite 與向量庫
+- `src/memetalk/app/search.py`
+  - 多路召回、候選合併、規則打分、rerank、快取
+- `src/memetalk/app/evaluation.py`
+  - 離線評估與 deterministic scoring profile tuning
+- `src/memetalk/storage/sqlite_store.py`
+  - canonical metadata、`index_runs`、SQLite FTS5 keyword route
+- `src/memetalk/storage/vector_store.py`
+  - `memory` / `chroma` 向量存取
+- `src/memetalk/providers/`
+  - OpenAI / LM Studio / mock / PaddleOCR 等 provider 實作
+
+## 系統設計重點
+
+### 1. 統一 metadata schema
+
+每張圖都會整理成同一個 canonical schema，核心欄位包含：
+
+- `ocr_text`
+- `ocr_status`
+- `template_name`
+- `template_canonical_id`
+- `template_aliases`
+- `scene_description`
+- `meme_usage`
+- `emotion_tags`
+- `intent_tags`
+- `style_tags`
+- `embedding_text`
+
+這樣做的目的：
+
+- 索引流程可觀測
+- 搜尋結果可解釋
+- provider 可替換
+- 評估與調權有穩定輸入
+
+### 2. 雙向量通道
+
+索引時，每張圖至少會建立兩個向量通道：
+
+- `semantic`
+  - 來自完整 `embedding_text`
+  - 適合主題、情境、意義相近的搜尋
+- `reply_text`
+  - 以 OCR 文字與回覆用途為主
+  - 適合找一句能直接拿來回的圖
+
+這兩個通道會分開存，並且帶有 `index_version` 邊界：
+
+- provider
+- model
+- dimension
+- channel
+
+所以 embedding 模型或維度變了，不會污染舊 collection。
+
+### 3. Keyword route 不再全表掃描
+
+SQLite repository 現在會維護：
+
+- `meme_assets`
+- `index_runs`
+- `meme_assets_fts`（FTS5）
+
+`meme_assets_fts` 會索引：
+
+- `keyword_text`
+- `template_text`
+- `ocr_text`
+
+搜尋時先用 FTS5 做 prefilter，再對小批候選套 lexical scoring，而不是每次把整張表拉回 Python 掃。
+
+### 4. SearchService 有快取
+
+同一個 process 內，重複相同搜尋時會快取：
+
+- query analysis
+- query embeddings
+- rerank outputs
+
+另外 `reply` 搜尋的 `semantic` / `reply_text` query embedding 也會做 batch 呼叫，減少 provider round-trip。
+
+## 索引流程
+
+建立索引時，系統會：
+
+1. 遞迴掃描 `.jpg`、`.jpeg`、`.png`、`.webp`
+2. 計算 SHA-256，避免重複索引
+3. 跑 OCR
+   - `success`
+   - `empty`
+   - `failed`
+4. 用 metadata provider 產出：
+   - 場景描述
+   - 常見用途
+   - 情緒 / 意圖 / 風格標籤
+5. 正規化 template
+6. 組出：
+   - `embedding_text`
+   - `reply_text` embedding text
+   - `keyword_text`
+7. 一次產生 semantic / reply_text embeddings
+8. 寫入 SQLite 與 vector store
+9. 把單張失敗記進 `index_runs`，不終止整批
+
+## 搜尋流程
+
+### Search modes
+
+- `reply`
+  - 主任務是找「適合拿來回一句話」的圖
+  - OCR keyword / template route 與 `reply_text` 向量路徑優先
+  - `semantic` 只當補位
+- `semantic`
+  - 主任務是找「整體語意接近」的圖
+  - `semantic` 向量權重最高
+
+### Query analysis
+
+query 會先被拆成結構化欄位：
+
+- `situation`
+- `emotions`
+- `tone`
+- `reply_intent`
+- `preferred_tone`
+- `query_terms`
+- `template_hints`
+- `retrieval_weights`
+
+`preferred_tone` 是額外偏好，不會覆蓋原本情境，而是拿來影響 route text 與 deterministic scoring。
+
+### Multi-route retrieval
+
+搜尋不依賴單一 embedding string，而是走：
+
+- `semantic` vector retrieval
+- `reply_text` vector retrieval
+- SQLite FTS keyword / template retrieval
+
+之後做：
+
+- merge
+- dedupe
+- feature packing
+
+### Deterministic scoring
+
+在 LLM rerank 之前，每個候選會先有一個可控的規則分數，特徵包含：
+
+- `semantic_vector`
+- `reply_vector`
+- `keyword_route`
+- `template_route`
+- `ocr_overlap`
+- `emotion_overlap`
+- `intent_match`
+- `preferred_tone_match`
+- `semantic_text_overlap`
+- `reply` 模式下的 OCR penalty / non-OCR cap
+
+這一層現在已經不是硬編碼常數，而是來自一份 JSON scoring profile。
+
+### LLM rerank
+
+若 reranker 可用：
+
+- `reply` 模式優先看 OCR 台詞與回覆適配度
+- `semantic` 模式優先看整體語意與情境匹配
+
+若 rerank 壞掉，會退回 deterministic fallback。
+
+若離線 tuning，則可直接用 `deterministic_only` 路徑評估權重，不依賴 LLM。
+
+## 調權與離線評估
+
+這個 repo 現在支援兩種 evaluation 工作流：
+
+### `eval run`
+
+用固定 query set 跑離線評估，輸出：
+
+- `precision_at_k`
+- `mrr`
+- `hard_negative_hit_rate`
+
+### `eval tune`
+
+用 evaluation cases 自動搜尋更好的 deterministic scoring profile，目標函數是：
+
+```text
+precision_at_k + mrr - hard_negative_hit_rate
+```
+
+輸出會寫成 JSON，預設路徑：
+
+- `data/search_scoring_profile.json`
+
+應用程式啟動時會自動載入這份 profile，因此調好的權重會直接進入正式搜尋流程。
+
+## Provider abstraction
+
+MemeTalk 把能力拆成可替換 provider：
+
+- OCR：`extract_text`
+- metadata：`analyze_image`
+- embeddings：`embed_texts`
+- query analysis：`analyze_query`
+- rerank：`rerank`
+
+目前支援：
+
+- `openai`
+- `lmstudio`
+- `mock`
+- `local`（保留介面，MVP 未完整實作）
+
+### OpenAI-compatible providers
+
+OpenAI 與 LM Studio 共用一條 OpenAI-compatible 實作，包含：
+
+- chat / vision / embedding
+- structured JSON output repair / retry
+- LM Studio model-not-loaded 的可操作錯誤提示
+- LM Studio `.webp` 轉 PNG data URL 相容處理
+
+### OCR runtime
+
+PaddleOCR 在 Windows CPU 環境下，目前驗證可用組合是：
+
+- `paddleocr==2.10.0`
+- `paddlepaddle==3.1.1`
+
+安裝：
 
 ```bash
 python -m pip install -e .[ocr]
 ```
 
-Windows CPU 目前驗證可用的組合是：
-
-- `paddleocr==2.10.0`
-- `paddlepaddle==3.1.1`
-
-若升到較新的 `paddlepaddle` 版本並出現 `OneDnnContext ... fused_conv2d`，請退回 `3.1.1`。
-
-打開瀏覽器 `http://localhost:8501`，透過左側選單操作：
-
-1. **⚙️ 設定** — 選擇 Provider、輸入 API Key、設定 Vector/OCR Backend
-2. **📦 索引** — 指定梗圖資料夾，建立語意索引
-3. **🔍 搜尋** — 輸入自然語言情境，搜尋最適合的梗圖
-
-只需這一條指令，不需要手動設定環境變數、不需要另外啟動 API 伺服器。
-
-## 架構：Multi-Page Streamlit + Direct Mode
-
-所有頁面直接呼叫 Python 服務（Direct Mode），不經 HTTP API，無需另外啟動伺服器。
-
-### 設定管理
-
-設定存於 `data/memetalk_config.toml`（TOML 格式），優先順序：
-
-1. 環境變數（最高優先）
-2. TOML 設定檔
-3. Pydantic 預設值
-
-環境變數仍可使用，向後相容。
-
-### 頁面結構
-
-| 頁面 | 檔案 | 功能 |
-|------|------|------|
-| Dashboard | `streamlit_app.py` | 系統狀態總覽、已索引數量、健康檢查 |
-| 設定 | `pages/1_⚙️_Settings.py` | Provider / API Key / Backend 設定 |
-| 索引 | `pages/2_📦_Index.py` | 選擇資料夾、建立/重建索引 |
-| 搜尋 | `pages/3_🔍_Search.py` | 搜尋模式選擇（適合回覆 / 契合語意）、自然語言搜尋、梗圖推薦結果 |
-
-## 關鍵運作邏輯
-
-### 1. 索引流程
-
-在「索引」頁面指定梗圖資料夾後，系統會：
-
-1. 遞迴掃描資料夾內的 `.jpg`、`.jpeg`、`.png`、`.webp`。
-2. 對每個檔案計算 SHA-256，作為去重與資產識別基礎。
-3. 先做 OCR，若 OCR 失敗則降級成空文字，但不會中止整批。
-4. 把圖片與 OCR 結果送進 metadata provider，產出統一結構的梗圖描述。
-5. 依照 metadata 組合 `embedding_text`，把模板、場景、用途、OCR、情緒、意圖、風格串成向量語料。
-6. 為每張梗圖建立兩份 embedding：
-   - **語意模式 (semantic)**：使用完整 `embedding_text`，涵蓋所有 metadata。
-   - **回覆模式 (reply)**：以 OCR 文字為主（重複強調），適合比對「適合拿來回覆」的梗圖。
-7. 呼叫 embedding provider 一次產生兩組向量。
-8. 將 canonical metadata 寫入 SQLite，並把兩份向量文件寫入 Chroma 或記憶體向量庫。
-8. 若單張圖片失敗，錯誤會記錄在 `index_runs`，其餘圖片繼續處理。
-
-對應模組：
-
-- `src/memetalk/app/indexer.py`
-- `src/memetalk/core/models.py`
-- `src/memetalk/storage/sqlite_store.py`
-- `src/memetalk/storage/vector_store.py`
-
-### 2. 搜尋流程
-
-在「搜尋」頁面輸入查詢後，系統會：
-
-1. 使用者先選擇搜尋模式：
-   - **適合回覆 (reply)**：找適合當作回應的梗圖，OCR 文字權重佔 90%。（預設）
-   - **契合語意 (semantic)**：找主題相近的梗圖，整體語意匹配。
-2. 把使用者查詢分析成結構化欄位：
-   - `situation`、`emotions`、`tone`、`reply_intent`、`query_embedding_text`
-   - 回覆模式下，`query_embedding_text` 會描述「適合回覆的梗圖會說什麼」而非重述輸入。
-3. 用 `query_embedding_text` 產生查詢向量。
-4. 從向量庫依所選模式篩選對應的 embedding，取回 top-k 候選圖片（預設 candidate_k=15）。
-5. 再用 reranker 依照模式做第二次排序（回覆模式重 OCR 文字、語意模式重整體匹配）。
-6. 若 rerank 失敗，會退回純向量排序，且每筆結果都會附 fallback reason。
-7. 搜尋結果直接顯示在頁面上，圖片從本機檔案路徑載入。
-
-對應模組：
-
-- `src/memetalk/app/search.py`
-- `pages/3_🔍_Search.py`
-
-### 3. 資料儲存方式
-
-MemeTalk 使用雙儲存結構：
-
-- SQLite：保存圖片主資料、metadata、索引紀錄。
-- Vector Store：保存 embedding 向量，供相似度搜尋。
-
-目前支援：
-
-- `memory`
-- `chroma`
-
-如果使用 `chroma`，請確保安裝相容版：
-
-```bash
-pip install -e .[chroma]
-```
-
-### 4. Provider 抽象
-
-Provider 層是這個專案的核心抽象。每個能力都可替換：
-
-- OCR：`extract_text`
-- Metadata 分析：`analyze_image`
-- Embedding：`embed_texts`
-- 查詢分析：`analyze_query`
-- Rerank：`rerank`
-
-目前 provider backend：
-
-- `openai`
-- `lmstudio`
-- `mock`
-- `local`（MVP 階段保留介面，未完整實作）
-
-對應模組：
-
-- `src/memetalk/core/providers.py`
-- `src/memetalk/providers/registry.py`
-- `src/memetalk/providers/openai_provider.py`
-- `src/memetalk/providers/mock.py`
-- `src/memetalk/providers/paddleocr_provider.py`
-
-### 4.1 OCR Runtime 注意事項
-
-PaddleOCR 在 Windows CPU 環境下，目前以 `paddleocr==2.10.0` 搭配 `paddlepaddle==3.1.1` 驗證可正常運作。
-
-若看到以下錯誤：
+若出現：
 
 - `OneDnnContext does not have the input Filter`
 - `operator < fused_conv2d > error`
 
-這通常是 Paddle runtime 相容性問題，不是梗圖資料本身壞掉。請先確認你是用專案的 `.venv` 啟動，並將 `paddlepaddle` 降回 `3.1.1`。
+通常是 Paddle runtime 相容性問題，請退回 `paddlepaddle==3.1.1`。
 
-### 5. LM Studio 相容邏輯
+## 快速開始
 
-LM Studio 透過 OpenAI-compatible API 接入，但實作上有幾個專案內已處理的相容細節：
+### 1. 安裝
 
-- 可用 `base_url` 切到 `http://127.0.0.1:1234/v1`
-- `.webp` 圖片在 LM Studio 路徑下會必要時轉成 PNG data URL
-- 結構化 JSON 輸出固定使用低隨機性設定，遇到可恢復的 malformed JSON 會自動 retry
-- 如果沒載入 chat / vision / embedding model，錯誤訊息會轉成較可操作的提示
+完整本機開發安裝：
 
-這些處理都在：
+```bash
+pip install -e .[dev,openai,chroma,ocr]
+```
 
-- `src/memetalk/providers/openai_provider.py`
+若只想快速 smoke test，不碰外部 provider：
 
-## 進階用法
+```bash
+pip install -e .[dev]
+```
 
-### CLI 索引（替代方式）
+### 2. 啟動 Streamlit
 
-除了 Streamlit 介面，也可以用 CLI 建立索引：
+```bash
+streamlit run streamlit_app.py
+```
+
+打開 `http://localhost:8501`。
+
+### 3. 基本操作
+
+1. `⚙️ Settings`
+   - 選 provider backend、model、vector backend、OCR backend
+2. `📦 Index`
+   - 指定梗圖資料夾並建立索引
+3. `🔍 Search`
+   - 選擇 `適合回覆` 或 `契合語意`
+   - 輸入 query
+   - 可選填偏好的梗圖語氣
+
+## CLI
+
+### 建立索引
 
 ```bash
 memetalk index build --source D:/path/to/memes
 memetalk index build --source D:/path/to/memes --reindex
 ```
 
-### FastAPI 伺服器（替代方式）
+### 跑離線評估
 
-如果需要 HTTP API，可以另外啟動 FastAPI：
+```bash
+memetalk eval run --cases D:/path/to/eval_cases.json
+```
+
+### 自動調 deterministic scoring profile
+
+```bash
+memetalk eval tune --cases D:/path/to/eval_cases.json
+memetalk eval tune --cases D:/path/to/eval_cases.json --output data/search_scoring_profile.json
+```
+
+### 啟動 FastAPI
 
 ```bash
 uvicorn memetalk.api.main:app --reload
 ```
 
-API 端點：
+API endpoints：
 
 - `GET /api/v1/health`
-- `POST /api/v1/search` — 支援 `mode` 欄位（`semantic` | `reply`，預設 `reply`）
+- `POST /api/v1/search`
 - `GET /api/v1/assets/{image_id}`
 
-### 環境變數（替代方式）
+## 設定與優先順序
 
-設定頁面可以取代手動設定環境變數。如果仍需使用環境變數，系統會讀取以下項目（環境變數優先於 TOML 設定）：
+設定來源優先順序：
 
-- `MEMETALK_SQLITE_PATH`
-- `MEMETALK_VECTOR_BACKEND`
-- `MEMETALK_CHROMA_PATH`
-- `MEMETALK_CHROMA_COLLECTION`
+1. 環境變數
+2. `data/memetalk_config.toml`
+3. Pydantic 預設值
+
+重要設定包含：
+
 - `MEMETALK_PROVIDER_BACKEND`
 - `MEMETALK_OCR_BACKEND`
-- `MEMETALK_OPENAI_BASE_URL`
+- `MEMETALK_VECTOR_BACKEND`
 - `MEMETALK_OPENAI_API_KEY`
-- `MEMETALK_OPENAI_CHAT_MODEL`
-- `MEMETALK_OPENAI_VISION_MODEL`
-- `MEMETALK_OPENAI_EMBEDDING_MODEL`
+- `MEMETALK_OPENAI_BASE_URL`
 - `MEMETALK_LMSTUDIO_BASE_URL`
-- `MEMETALK_LMSTUDIO_API_KEY`
-- `MEMETALK_LMSTUDIO_CHAT_MODEL`
-- `MEMETALK_LMSTUDIO_VISION_MODEL`
-- `MEMETALK_LMSTUDIO_EMBEDDING_MODEL`
-- `MEMETALK_API_BASE_URL`
+- `MEMETALK_SEARCH_CANDIDATE_K`
+- `MEMETALK_SEARCH_TOP_N`
+- `MEMETALK_SEARCH_SCORING_PROFILE_PATH`
 
-若只想本機驗證流程，不想碰外部服務，可在設定頁面選擇 `mock` provider 和 `memory` vector backend。
+預設 scoring profile 路徑是：
+
+- `data/search_scoring_profile.json`
+
+如果檔案不存在，系統會回退到內建預設權重。
+
+## 目前的實務建議
+
+- 想提升 `reply` 精確度：
+  - 先補高品質 OCR
+  - 再整理 evaluation cases
+  - 最後跑 `eval tune`
+- 想提升搜尋速度：
+  - 先用現有的 query cache + batch embeddings + SQLite FTS5
+  - 如果 bottleneck 還在，多半是外部 LLM latency
+- 調完 scoring profile 後：
+  - 不需要重跑索引
+  - 重新啟動 app 即可吃到新 profile
 
 ## OpenSpec
 
-此專案以 OpenSpec 作為 source of truth。核心需求定義在：
+這個專案的規格 source of truth 在：
 
-- `openspec/specs/meme-search-mvp/spec.md`
+- [`openspec/specs/meme-search-mvp/spec.md`](openspec/specs/meme-search-mvp/spec.md)
 
-目前 README 描述的是既有實作與 OpenSpec 對應關係，不是額外規格來源。
+README 的角色是：
+
+- 解釋原理
+- 說明架構
+- 提供操作方式
+
+不是額外的規格來源。

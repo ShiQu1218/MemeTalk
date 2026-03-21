@@ -136,6 +136,25 @@ class RetrievalWeights(BaseModel):
     template: float = 1.0
 
 
+class DeterministicModeScoringProfile(BaseModel):
+    semantic_vector: float = 0.0
+    reply_vector: float = 0.0
+    keyword_route: float = 0.0
+    template_route: float = 0.0
+    ocr_overlap: float = 0.0
+    emotion_overlap: float = 0.0
+    intent_match: float = 0.0
+    preferred_tone_match: float = 0.0
+    semantic_text_overlap: float = 0.0
+    penalty_multiplier: float = 1.0
+    non_ocr_score_cap: float | None = None
+
+
+class SearchScoringProfile(BaseModel):
+    reply: DeterministicModeScoringProfile
+    semantic: DeterministicModeScoringProfile
+
+
 class QueryAnalysis(BaseModel):
     original_query: str
     situation: str

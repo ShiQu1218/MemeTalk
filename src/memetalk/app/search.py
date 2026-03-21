@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections import OrderedDict
 from dataclasses import dataclass, field
 
@@ -15,12 +16,14 @@ from memetalk.core.models import (
     SearchResult,
     SearchResultDebug,
     SearchTrace,
+    SearchScoringProfile,
 )
 from memetalk.core.providers import ProviderBundle
 from memetalk.core.retrieval import (
     build_index_version,
     build_reply_query_text,
     build_semantic_query_text,
+    default_search_scoring_profile,
     lexical_overlap_score,
     ocr_penalty,
     template_hint_score,
@@ -30,10 +33,12 @@ from memetalk.storage.vector_store import VectorStore
 
 FALLBACK_REASON = "deterministic 排序 fallback：暫時無法完成 rerank，保留綜合檢索與規則評分最高的候選結果。"
 RERANK_POOL_MULTIPLIER = 3
-REPLY_NON_OCR_SCORE_CAP = 0.48
 QUERY_ANALYSIS_CACHE_SIZE = 128
 QUERY_EMBEDDING_CACHE_SIZE = 256
 RERANK_RESULT_CACHE_SIZE = 128
+DETERMINISTIC_ONLY_REASON = "deterministic-only 排序：使用已調整的規則權重直接排序，未啟用 rerank。"
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -49,11 +54,13 @@ class SearchService:
         vector_store: VectorStore,
         providers: ProviderBundle,
         api_base_url: str,
+        scoring_profile: SearchScoringProfile | None = None,
     ) -> None:
         self.repository = repository
         self.vector_store = vector_store
         self.providers = providers
         self.api_base_url = api_base_url.rstrip("/")
+        self.scoring_profile = scoring_profile or default_search_scoring_profile()
         self._query_analysis_cache: OrderedDict[str, QueryAnalysis] = OrderedDict()
         self._query_embedding_cache: OrderedDict[str, list[float]] = OrderedDict()
         self._rerank_cache: OrderedDict[str, list] = OrderedDict()
@@ -66,6 +73,7 @@ class SearchService:
         candidate_k: int,
         mode: SearchMode = SearchMode.REPLY,
         preferred_tone: str | None = None,
+        rerank_enabled: bool = True,
     ) -> SearchResponse:
         self._ensure_cache_identity()
         query_analysis = self._get_query_analysis(query, mode, preferred_tone)
@@ -73,7 +81,14 @@ class SearchService:
         asset_map = self.repository.get_assets_by_ids(list(route_scores.keys()))
         candidates = self._build_candidates(asset_map, route_scores, query_analysis, mode)
         candidates.sort(key=lambda item: item.deterministic_score, reverse=True)
-        results, rerank_strategy = self._rerank_or_fallback(query, query_analysis, candidates, top_n, mode=mode)
+        results, rerank_strategy = self._rerank_or_fallback(
+            query,
+            query_analysis,
+            candidates,
+            top_n,
+            mode=mode,
+            rerank_enabled=rerank_enabled,
+        )
         search_trace.rerank_strategy = rerank_strategy
         if mode == SearchMode.REPLY and ("reply_text" not in search_trace.candidate_counts or search_trace.candidate_counts.get("reply_text", 0) == 0):
             search_trace.degraded_routes.append("reply_text")
@@ -276,32 +291,33 @@ class SearchService:
         preferred_tone_match = feature_scores.get("preferred_tone_match", 0.0)
         semantic_text_overlap = feature_scores.get("semantic_text_overlap", 0.0)
         penalty = ocr_penalty(asset.metadata, mode)
+        profile = self.scoring_profile.reply if mode == SearchMode.REPLY else self.scoring_profile.semantic
 
         if mode == SearchMode.REPLY:
             score = (
-                (semantic_vector * weights.semantic * 0.18)
-                + (reply_vector * weights.reply_text * 0.3)
-                + (keyword_route * weights.keyword * 0.26)
-                + (template_route * weights.template * 0.14)
-                + (ocr_overlap * 0.42)
-                + (intent_match * 0.13)
-                + (emotion_overlap * 0.05)
-                + (preferred_tone_match * 0.16)
-                - penalty
+                (semantic_vector * weights.semantic * profile.semantic_vector)
+                + (reply_vector * weights.reply_text * profile.reply_vector)
+                + (keyword_route * weights.keyword * profile.keyword_route)
+                + (template_route * weights.template * profile.template_route)
+                + (ocr_overlap * profile.ocr_overlap)
+                + (intent_match * profile.intent_match)
+                + (emotion_overlap * profile.emotion_overlap)
+                + (preferred_tone_match * profile.preferred_tone_match)
+                - (penalty * profile.penalty_multiplier)
             )
-            if asset.metadata.ocr_status != OCRStatus.SUCCESS:
-                return min(score, REPLY_NON_OCR_SCORE_CAP)
+            if asset.metadata.ocr_status != OCRStatus.SUCCESS and profile.non_ocr_score_cap is not None:
+                return min(score, profile.non_ocr_score_cap)
             return score
         return (
-            (semantic_vector * weights.semantic * 0.45)
-            + (reply_vector * weights.reply_text * 0.04)
-            + (keyword_route * weights.keyword * 0.12)
-            + (template_route * weights.template * 0.08)
-            + (semantic_text_overlap * 0.22)
-            + (emotion_overlap * 0.08)
-            + (intent_match * 0.03)
-            + (preferred_tone_match * 0.05)
-            - (penalty * 0.3)
+            (semantic_vector * weights.semantic * profile.semantic_vector)
+            + (reply_vector * weights.reply_text * profile.reply_vector)
+            + (keyword_route * weights.keyword * profile.keyword_route)
+            + (template_route * weights.template * profile.template_route)
+            + (semantic_text_overlap * profile.semantic_text_overlap)
+            + (emotion_overlap * profile.emotion_overlap)
+            + (intent_match * profile.intent_match)
+            + (preferred_tone_match * profile.preferred_tone_match)
+            - (penalty * profile.penalty_multiplier)
         )
 
     def _rerank_or_fallback(
@@ -311,9 +327,32 @@ class SearchService:
         candidates: list[RerankCandidate],
         top_n: int,
         mode: SearchMode = SearchMode.REPLY,
+        rerank_enabled: bool = True,
     ) -> tuple[list[SearchResult], str]:
         if not candidates:
             return [], "no_candidates"
+        if not rerank_enabled:
+            deterministic_candidates = sorted(candidates, key=lambda item: item.deterministic_score, reverse=True)[:top_n]
+            return (
+                [
+                    SearchResult(
+                        image_id=candidate.image_id,
+                        image_url=f"{self.api_base_url}/api/v1/assets/{candidate.image_id}",
+                        reason=DETERMINISTIC_ONLY_REASON,
+                        score=candidate.deterministic_score,
+                        template_name=candidate.metadata.template_name,
+                        emotion_tags=candidate.metadata.emotion_tags,
+                        intent_tags=candidate.metadata.intent_tags,
+                        debug=SearchResultDebug(
+                            candidate_sources=candidate.candidate_sources,
+                            degradation_flags=candidate.degradation_flags,
+                            feature_scores=candidate.feature_scores,
+                        ),
+                    )
+                    for candidate in deterministic_candidates
+                ],
+                "deterministic_only",
+            )
         rerank_pool_size = max(top_n, min(len(candidates), top_n * RERANK_POOL_MULTIPLIER))
         rerank_pool = self._build_rerank_pool(candidates, rerank_pool_size, mode)
         try:
@@ -348,6 +387,7 @@ class SearchService:
                 "llm_rerank",
             )
         except Exception:
+            logger.warning("Rerank failed, falling back to deterministic sort", exc_info=True)
             fallback_candidates = sorted(candidates, key=lambda item: item.deterministic_score, reverse=True)[:top_n]
             return (
                 [
@@ -489,7 +529,7 @@ class SearchService:
         self._rerank_cache.clear()
         self._provider_cache_identity = current_identity
 
-    def _cache_get(self, cache: OrderedDict[str, object], key: str):
+    def _cache_get(self, cache: OrderedDict[str, object], key: str) -> object | None:
         if key not in cache:
             return None
         value = cache.pop(key)
@@ -502,3 +542,7 @@ class SearchService:
         cache[key] = value
         while len(cache) > max_size:
             cache.popitem(last=False)
+
+    def set_scoring_profile(self, profile: SearchScoringProfile) -> None:
+        self.scoring_profile = profile
+        self._rerank_cache.clear()

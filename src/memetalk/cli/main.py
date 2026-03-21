@@ -25,6 +25,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     eval_run_parser = eval_subparsers.add_parser("run", help="Run evaluation cases")
     eval_run_parser.add_argument("--cases", required=True, help="JSON file containing evaluation cases")
+
+    eval_tune_parser = eval_subparsers.add_parser("tune", help="Tune deterministic scoring weights")
+    eval_tune_parser.add_argument("--cases", required=True, help="JSON file containing evaluation cases")
+    eval_tune_parser.add_argument("--output", help="Path to write the tuned scoring profile JSON")
+    eval_tune_parser.add_argument("--passes", type=int, default=2, help="Number of coordinate-search passes")
     return parser
 
 
@@ -45,6 +50,29 @@ def main(argv: Sequence[str] | None = None) -> int:
         cases = container.evaluation_service.load_cases(Path(args.cases))
         report = container.evaluation_service.run_cases(cases)
         print(json.dumps(report.model_dump(mode="json"), ensure_ascii=False, indent=2))
+        return 0
+
+    if args.command == "eval" and args.eval_command == "tune":
+        settings = AppSettings.from_env()
+        container = build_container(settings)
+        cases = container.evaluation_service.load_cases(Path(args.cases))
+        tuning_report = container.evaluation_service.tune_scoring_profile(cases, passes=args.passes)
+        output_path = Path(args.output) if args.output else settings.search_scoring_profile_path
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(
+            json.dumps(tuning_report.best_profile.model_dump(mode="json"), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        print(
+            json.dumps(
+                {
+                    **tuning_report.model_dump(mode="json"),
+                    "output_path": str(output_path),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
         return 0
 
     parser.print_help()

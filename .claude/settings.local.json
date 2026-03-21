@@ -16,7 +16,10 @@
       "Bash(source:*)",
       "Bash(.venv/Scripts/python.exe:*)",
       "Bash(nvidia-smi:*)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(ruff check:*)",
+      "Bash(pip show:*)",
+      "Bash(pip list:*)"
     ]
   }
 }

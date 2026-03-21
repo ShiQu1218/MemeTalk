@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -26,8 +27,6 @@ def load_settings(path: Path = DEFAULT_CONFIG_PATH) -> AppSettings:
             toml_data = tomllib.load(f)
     # Build kwargs from TOML, then let from_env overlay env vars
     # Strategy: read TOML first, set as env defaults where env is not set
-    import os
-
     env_overrides: dict = {}
     env_mapping = {
         "sqlite_path": "MEMETALK_SQLITE_PATH",
@@ -49,6 +48,7 @@ def load_settings(path: Path = DEFAULT_CONFIG_PATH) -> AppSettings:
         "lmstudio_embedding_model": "MEMETALK_LMSTUDIO_EMBEDDING_MODEL",
         "search_candidate_k_default": "MEMETALK_SEARCH_CANDIDATE_K",
         "search_top_n_default": "MEMETALK_SEARCH_TOP_N",
+        "search_scoring_profile_path": "MEMETALK_SEARCH_SCORING_PROFILE_PATH",
         "meme_folder": "MEMETALK_MEME_FOLDER",
     }
 

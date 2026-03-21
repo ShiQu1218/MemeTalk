@@ -4,7 +4,15 @@ import re
 import unicodedata
 from collections.abc import Iterable
 
-from memetalk.core.models import MemeMetadata, OCRStatus, QueryAnalysis, RetrievalWeights, SearchMode
+from memetalk.core.models import (
+    DeterministicModeScoringProfile,
+    MemeMetadata,
+    OCRStatus,
+    QueryAnalysis,
+    RetrievalWeights,
+    SearchMode,
+    SearchScoringProfile,
+)
 
 _CAMEL_CASE_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _NON_WORD = re.compile(r"[^\w\u4e00-\u9fff]+", re.UNICODE)
@@ -89,6 +97,34 @@ def default_retrieval_weights(mode: SearchMode) -> RetrievalWeights:
     return RetrievalWeights(semantic=1.0, reply_text=0.35, keyword=0.6, template=0.5)
 
 
+def default_search_scoring_profile() -> SearchScoringProfile:
+    return SearchScoringProfile(
+        reply=DeterministicModeScoringProfile(
+            semantic_vector=0.18,
+            reply_vector=0.3,
+            keyword_route=0.26,
+            template_route=0.14,
+            ocr_overlap=0.42,
+            intent_match=0.13,
+            emotion_overlap=0.05,
+            preferred_tone_match=0.16,
+            penalty_multiplier=1.0,
+            non_ocr_score_cap=0.48,
+        ),
+        semantic=DeterministicModeScoringProfile(
+            semantic_vector=0.45,
+            reply_vector=0.04,
+            keyword_route=0.12,
+            template_route=0.08,
+            semantic_text_overlap=0.22,
+            emotion_overlap=0.08,
+            intent_match=0.03,
+            preferred_tone_match=0.05,
+            penalty_multiplier=0.3,
+        ),
+    )
+
+
 def lexical_overlap_score(terms: Iterable[str], haystack: str) -> float:
     cleaned_terms = [term.strip().lower() for term in terms if term.strip()]
     if not cleaned_terms:
@@ -107,14 +143,18 @@ def template_hint_score(template_hints: Iterable[str], metadata: MemeMetadata) -
     return matches / len(hints)
 
 
+_PENALTY_OCR_EMPTY = 0.28
+_PENALTY_OCR_FAILED = 0.4
+
+
 def ocr_penalty(metadata: MemeMetadata, mode: SearchMode) -> float:
     if mode != SearchMode.REPLY:
         return 0.0
     if metadata.ocr_status == OCRStatus.SUCCESS:
         return 0.0
     if metadata.ocr_status == OCRStatus.EMPTY:
-        return 0.28
-    return 0.4
+        return _PENALTY_OCR_EMPTY
+    return _PENALTY_OCR_FAILED
 
 
 def build_index_version(identity: str, vector_length: int, channel: str) -> str:
