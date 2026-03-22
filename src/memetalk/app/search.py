@@ -67,12 +67,14 @@ class SearchService:
         providers: ProviderBundle,
         api_base_url: str,
         scoring_profile: SearchScoringProfile | None = None,
+        rerank_pool_size: int = RERANK_POOL_SIZE,
     ) -> None:
         self.repository = repository
         self.vector_store = vector_store
         self.providers = providers
         self.api_base_url = api_base_url.rstrip("/")
         self.scoring_profile = scoring_profile or default_search_scoring_profile()
+        self.rerank_pool_size = rerank_pool_size
         self._query_analysis_cache: OrderedDict[str, QueryAnalysis] = OrderedDict()
         self._query_embedding_cache: OrderedDict[str, list[float]] = OrderedDict()
         self._query_image_cache: OrderedDict[str, MemeMetadata] = OrderedDict()
@@ -543,7 +545,7 @@ class SearchService:
                 ],
                 "deterministic_only",
             )
-        rerank_pool_size = max(top_n, min(len(candidates), RERANK_POOL_SIZE))
+        rerank_pool_size = max(top_n, min(len(candidates), self.rerank_pool_size))
         rerank_pool = self._build_rerank_pool(candidates, rerank_pool_size, mode)
         try:
             reranked = self._rerank_candidates(query, query_analysis, rerank_pool, top_n, mode)

@@ -21,6 +21,9 @@ _MEME_ASSET_COLUMNS = {
     "image_id": "TEXT PRIMARY KEY",
     "file_path": "TEXT NOT NULL",
     "file_sha256": "TEXT NOT NULL UNIQUE",
+    "index_status": "TEXT NOT NULL DEFAULT ''",
+    "semantic_index_version": "TEXT NOT NULL DEFAULT ''",
+    "reply_index_version": "TEXT NOT NULL DEFAULT ''",
     "has_text": "INTEGER NOT NULL",
     "ocr_text": "TEXT NOT NULL",
     "ocr_status": "TEXT NOT NULL DEFAULT 'empty'",
@@ -74,6 +77,9 @@ class SQLiteMemeRepository:
                     image_id TEXT PRIMARY KEY,
                     file_path TEXT NOT NULL,
                     file_sha256 TEXT NOT NULL UNIQUE,
+                    index_status TEXT NOT NULL DEFAULT '',
+                    semantic_index_version TEXT NOT NULL DEFAULT '',
+                    reply_index_version TEXT NOT NULL DEFAULT '',
                     has_text INTEGER NOT NULL,
                     ocr_text TEXT NOT NULL,
                     ocr_status TEXT NOT NULL DEFAULT 'empty',
@@ -132,15 +138,19 @@ class SQLiteMemeRepository:
             conn.execute(
                 """
                 INSERT INTO meme_assets (
-                    image_id, file_path, file_sha256, has_text, ocr_text, ocr_status, ocr_confidence,
+                    image_id, file_path, file_sha256, index_status, semantic_index_version, reply_index_version,
+                    has_text, ocr_text, ocr_status, ocr_confidence,
                     ocr_lines, template_name, template_canonical_id, template_aliases, template_family,
                     scene_description, meme_usage, visual_description, aesthetic_tags, usage_scenario,
                     emotion_tags, intent_tags, style_tags,
                     embedding_text, keyword_text, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(image_id) DO UPDATE SET
                     file_path=excluded.file_path,
                     file_sha256=excluded.file_sha256,
+                    index_status=excluded.index_status,
+                    semantic_index_version=excluded.semantic_index_version,
+                    reply_index_version=excluded.reply_index_version,
                     has_text=excluded.has_text,
                     ocr_text=excluded.ocr_text,
                     ocr_status=excluded.ocr_status,
@@ -166,6 +176,9 @@ class SQLiteMemeRepository:
                     asset.image_id,
                     asset.file_path,
                     asset.file_sha256,
+                    asset.index_status,
+                    asset.semantic_index_version,
+                    asset.reply_index_version,
                     int(asset.metadata.has_text),
                     asset.metadata.ocr_text,
                     asset.metadata.ocr_status.value,
@@ -200,6 +213,28 @@ class SQLiteMemeRepository:
     def get_asset_by_sha256(self, file_sha256: str) -> MemeAsset | None:
         row = self._fetch_one("SELECT * FROM meme_assets WHERE file_sha256 = ?", (file_sha256,))
         return self._row_to_asset(row) if row else None
+
+    def is_asset_current(
+        self,
+        file_sha256: str,
+        semantic_index_version: str,
+        reply_index_version: str,
+    ) -> bool:
+        row = self._fetch_one(
+            """
+            SELECT index_status, semantic_index_version, reply_index_version
+            FROM meme_assets
+            WHERE file_sha256 = ?
+            """,
+            (file_sha256,),
+        )
+        if row is None:
+            return False
+        return (
+            (row["index_status"] or "") == "ready"
+            and (row["semantic_index_version"] or "") == semantic_index_version
+            and (row["reply_index_version"] or "") == reply_index_version
+        )
 
     def get_asset_by_id(self, image_id: str) -> MemeAsset | None:
         row = self._fetch_one("SELECT * FROM meme_assets WHERE image_id = ?", (image_id,))
@@ -464,6 +499,9 @@ class SQLiteMemeRepository:
             file_path=row["file_path"],
             file_sha256=row["file_sha256"],
             metadata=metadata,
+            index_status=row["index_status"] or "",
+            semantic_index_version=row["semantic_index_version"] or "",
+            reply_index_version=row["reply_index_version"] or "",
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )

@@ -83,6 +83,9 @@ class CountingEmbeddingProvider(EmbeddingProvider):
     def index_identity(self) -> str:
         return self.delegate.index_identity()
 
+    def embedding_dimensions(self) -> int | None:
+        return self.delegate.embedding_dimensions()
+
 
 class CountingReranker(Reranker):
     name = "counting-reranker"

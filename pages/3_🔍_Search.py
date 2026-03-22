@@ -29,6 +29,32 @@ def _get_container():
 
 _MODE_OPTIONS = {"適合回覆": SearchMode.REPLY, "契合語意": SearchMode.SEMANTIC}
 
+with st.sidebar:
+    st.header("搜尋參數")
+    _container = _get_container()
+    _defaults = _container.settings
+    display_top_n = st.slider(
+        "顯示結果數量",
+        min_value=1,
+        max_value=20,
+        value=_defaults.search_top_n_default,
+        help="最終顯示的梗圖數量",
+    )
+    rerank_pool = st.slider(
+        "Rerank 候選池大小",
+        min_value=4,
+        max_value=40,
+        value=_defaults.search_rerank_pool_size,
+        help="送進 LLM reranker 的候選數量，越大精度可能越高但速度越慢",
+    )
+    candidate_k = st.slider(
+        "初始檢索數量",
+        min_value=10,
+        max_value=60,
+        value=_defaults.search_candidate_k_default,
+        help="每條路由的最大檢索數量",
+    )
+
 render_section("查詢條件", "回覆模式偏向能直接拿去回嘴，語意模式偏向找情境接近的梗圖。")
 with st.container(border=True):
     mode_label = st.radio("搜尋模式", list(_MODE_OPTIONS.keys()), horizontal=True)
@@ -61,10 +87,11 @@ if st.button("搜尋梗圖", type="primary", use_container_width=True):
             with image_context as query_image_path:
                 with st.spinner("搜尋中..."):
                     container = _get_container()
+                    container.search_service.rerank_pool_size = rerank_pool
                     response = container.search_service.search(
                         query=query,
-                        top_n=container.settings.search_top_n_default,
-                        candidate_k=container.settings.search_candidate_k_default,
+                        top_n=display_top_n,
+                        candidate_k=candidate_k,
                         mode=search_mode,
                         preferred_tone=preferred_tone,
                         query_image_path=query_image_path,

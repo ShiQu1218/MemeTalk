@@ -51,6 +51,7 @@ class AppSettings(BaseModel):
     claude_embedding_provider: Literal["openai", "gemini"] = "openai"
     search_candidate_k_default: int = 20
     search_top_n_default: int = 6
+    search_rerank_pool_size: int = 16
     search_scoring_profile_path: Path = Field(default_factory=lambda: Path("data/search_scoring_profile.json"))
     meme_folder: str = ""
 
@@ -88,6 +89,7 @@ class AppSettings(BaseModel):
             claude_embedding_provider=os.getenv("MEMETALK_CLAUDE_EMBEDDING_PROVIDER", "openai"),
             search_candidate_k_default=_env_int("MEMETALK_SEARCH_CANDIDATE_K", 20),
             search_top_n_default=_env_int("MEMETALK_SEARCH_TOP_N", 6),
+            search_rerank_pool_size=_env_int("MEMETALK_SEARCH_RERANK_POOL_SIZE", 16),
             search_scoring_profile_path=_env_path(
                 "MEMETALK_SEARCH_SCORING_PROFILE_PATH",
                 "data/search_scoring_profile.json",

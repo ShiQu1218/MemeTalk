@@ -212,16 +212,29 @@ class CompatibleEmbeddingProvider(_OpenAICompatibleBase, EmbeddingProvider):
     def __init__(self, profile: CompatibleProviderProfile) -> None:
         super().__init__(profile)
         self.name = f"{profile.label}-embedding"
+        self._cached_dimension: int | None = None
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
         try:
             response = self._client().embeddings.create(model=self.profile.embedding_model, input=texts)
         except Exception as exc:
             raise self._translate_provider_error(exc, "embedding") from exc
-        return [item.embedding for item in response.data]
+        vectors = [item.embedding for item in response.data]
+        if vectors and self._cached_dimension is None:
+            self._cached_dimension = len(vectors[0])
+        return vectors
 
     def index_identity(self) -> str:
         return f"{self.name}:{self.profile.embedding_model}"
+
+    def embedding_dimensions(self) -> int | None:
+        if self._cached_dimension is not None:
+            return self._cached_dimension
+        probe_vectors = self.embed_texts(["memetalk-index-dimension-probe"])
+        if not probe_vectors:
+            return None
+        self._cached_dimension = len(probe_vectors[0])
+        return self._cached_dimension
 
 
 class CompatibleQueryAnalyzer(_OpenAICompatibleBase, QueryAnalyzer):

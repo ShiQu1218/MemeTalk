@@ -62,6 +62,7 @@ def build_container(settings: AppSettings | None = None) -> AppContainer:
         providers,
         active_settings.api_base_url,
         scoring_profile=scoring_profile,
+        rerank_pool_size=active_settings.search_rerank_pool_size,
     )
     evaluation_service = EvaluationService(search_service, active_settings.search_candidate_k_default)
     return AppContainer(

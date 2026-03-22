@@ -43,6 +43,8 @@
 - The system MUST provide a CLI command `index build --source <dir> [--reindex]`.
 - The indexer MUST recursively scan `.jpg`, `.jpeg`, `.png`, `.webp`.
 - The indexer MUST compute SHA-256 per file and skip already indexed files unless `--reindex` is used.
+- Incremental skip decisions MUST treat an image as already indexed only when its canonical metadata and all required vector documents for the current embedding index version are present.
+- Images left in a partial or failed indexing state, or indexed under an outdated embedding index version, MUST be retried on the next non-`--reindex` build instead of being skipped.
 - The metadata provider MUST perform OCR, aesthetic analysis, and metadata extraction in a single Vision LLM call, eliminating the need for a separate OCR step during indexing.
 - When a dedicated OCR provider is configured (for example PaddleOCR), the indexer MAY run it before metadata analysis and pass the OCR text as a hint; the metadata provider MUST still accept and process images without a prior OCR result.
 - OCR failures MUST degrade to empty text, set `ocr_status` to `failed`, and continue processing.
@@ -108,6 +110,7 @@
   - **Index** (`pages/2_📦_Index.py`): meme folder path input seeded from the saved default meme folder, optional force-reindex toggle, progress display, and result summary (processed / indexed / skipped / failed counts with error details).
   - **Search** (`pages/3_🔍_Search.py`): search mode selector (適合回覆 / 契合語意), natural-language query input, optional query image uploader with preview, query analysis display, top-N result cards with images loaded from local file paths, recommended reason text, and visible emotion and intent tags.
 - The Search page MUST include an optional input for preferred meme tone (for example 嘴砲, 冷淡, 可憐, 陰陽怪氣) and pass that preference into query analysis and reranking.
+- The Search page MUST provide sidebar controls that let users adjust at runtime: display result count (`top_n`), rerank pool size, and initial retrieval count (`candidate_k`). Default values MUST come from the persisted configuration.
 - The Search page MUST allow searches to run when only a query image is provided, and MUST show a validation error only when both text and image inputs are absent.
 - Settings MUST support a priority chain: environment variables > TOML config file > pydantic defaults.
 - Settings persistence MUST merge submitted values with the existing persisted settings and MUST NOT clear unrelated stored fields such as `meme_folder` during a partial update.

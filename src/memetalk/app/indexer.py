@@ -79,6 +79,7 @@ class IndexingService:
             path for path in source_dir.rglob("*") if path.is_file() and path.suffix.lower() in SUPPORTED_IMAGE_SUFFIXES
         )
         total = len(image_paths)
+        current_index_versions = self._resolve_current_index_versions() if image_paths and not reindex else None
 
         def _report(file_name: str, step: str) -> None:
             if on_progress is not None:
@@ -112,7 +113,7 @@ class IndexingService:
             _report(name, "sha256")
             file_sha256 = _sha256_file(image_path)
 
-            if not reindex and self.repository.get_asset_by_sha256(file_sha256):
+            if not reindex and current_index_versions and self._is_fully_indexed(file_sha256, *current_index_versions):
                 run.skipped_count += 1
                 _report(name, "skip")
                 continue
@@ -154,8 +155,10 @@ class IndexingService:
                     file_path=str(image_path.resolve()),
                     file_sha256=file_sha256,
                     metadata=metadata,
+                    index_status="ready",
+                    semantic_index_version=semantic_index_version,
+                    reply_index_version=reply_index_version,
                 )
-                self.repository.upsert_asset(asset)
                 base_metadata = {
                     "file_path": asset.file_path,
                     "template_name": metadata.template_name or "",
@@ -189,6 +192,7 @@ class IndexingService:
                         ),
                     ]
                 )
+                self.repository.upsert_asset(asset)
                 run.indexed_count += 1
                 _report(name, "done")
             except Exception as exc:
@@ -204,6 +208,42 @@ class IndexingService:
             run.status = "completed"
         self.repository.save_index_run(run)
         return run
+
+    def _resolve_current_index_versions(self) -> tuple[str, str] | None:
+        try:
+            embedding_dimension = self.providers.embedding_provider.embedding_dimensions()
+        except Exception:
+            return None
+        if embedding_dimension is None or embedding_dimension <= 0:
+            return None
+        embedding_identity = self.providers.embedding_provider.index_identity()
+        return (
+            build_index_version(embedding_identity, embedding_dimension, "semantic"),
+            build_index_version(embedding_identity, embedding_dimension, "reply_text"),
+        )
+
+    def _is_fully_indexed(
+        self,
+        file_sha256: str,
+        semantic_index_version: str,
+        reply_index_version: str,
+    ) -> bool:
+        asset = self.repository.get_asset_by_sha256(file_sha256)
+        if asset is None:
+            return False
+        if asset.index_status != "ready":
+            return False
+        if asset.semantic_index_version != semantic_index_version:
+            return False
+        if asset.reply_index_version != reply_index_version:
+            return False
+        return self.vector_store.has_document(
+            f"{asset.image_id}:semantic",
+            semantic_index_version,
+        ) and self.vector_store.has_document(
+            f"{asset.image_id}:reply_text",
+            reply_index_version,
+        )
 
     def _extract_text(self, image_path: Path, run: IndexRunSummary) -> OCRExtraction:
         try:

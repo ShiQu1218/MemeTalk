@@ -26,6 +26,10 @@ class VectorStore(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def has_document(self, document_id: str, index_version: str) -> bool:
+        raise NotImplementedError
+
+    @abstractmethod
     def query(
         self,
         vector: list[float],
@@ -48,6 +52,12 @@ class InMemoryVectorStore(VectorStore):
     def upsert(self, documents: list[EmbeddingDocument]) -> None:
         for document in documents:
             self._documents[document.document_id] = document
+
+    def has_document(self, document_id: str, index_version: str) -> bool:
+        document = self._documents.get(document_id)
+        if document is None:
+            return False
+        return str(document.metadata.get("index_version", "")) == index_version
 
     def query(
         self,
@@ -120,6 +130,23 @@ class ChromaVectorStore(VectorStore):
                 embeddings=[document.vector for document in grouped_documents],
                 metadatas=[document.metadata for document in grouped_documents],
             )
+
+    def has_document(self, document_id: str, index_version: str) -> bool:
+        try:
+            collection = self._get_collection(index_version)
+            response = collection.get(ids=[document_id], include=[])
+        except Exception:
+            logger.warning(
+                "ChromaDB document presence check failed for %s (index_version=%s). Treating as missing.",
+                document_id,
+                index_version,
+                exc_info=True,
+            )
+            return False
+        ids = response.get("ids", [])
+        if ids and isinstance(ids[0], list):
+            ids = ids[0]
+        return document_id in ids
 
     def query(
         self,

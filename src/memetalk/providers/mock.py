@@ -133,6 +133,9 @@ class MockEmbeddingProvider(EmbeddingProvider):
     def index_identity(self) -> str:
         return f"{self.name}:dim-{self.dimensions}"
 
+    def embedding_dimensions(self) -> int | None:
+        return self.dimensions
+
     def _embed_single(self, text: str) -> list[float]:
         vector = [0.0] * self.dimensions
         tokens = _tokenize(text)
@@ -233,6 +236,9 @@ class UnsupportedLocalEmbeddingProvider(EmbeddingProvider):
 
     def index_identity(self) -> str:
         return f"{self.name}:unsupported"
+
+    def embedding_dimensions(self) -> int | None:
+        return None
 
 
 class UnsupportedLocalQueryAnalyzer(QueryAnalyzer):

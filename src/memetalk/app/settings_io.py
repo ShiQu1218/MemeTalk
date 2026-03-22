@@ -62,6 +62,7 @@ def load_settings(path: Path = DEFAULT_CONFIG_PATH) -> AppSettings:
         "claude_embedding_provider": "MEMETALK_CLAUDE_EMBEDDING_PROVIDER",
         "search_candidate_k_default": "MEMETALK_SEARCH_CANDIDATE_K",
         "search_top_n_default": "MEMETALK_SEARCH_TOP_N",
+        "search_rerank_pool_size": "MEMETALK_SEARCH_RERANK_POOL_SIZE",
         "search_scoring_profile_path": "MEMETALK_SEARCH_SCORING_PROFILE_PATH",
         "meme_folder": "MEMETALK_MEME_FOLDER",
     }

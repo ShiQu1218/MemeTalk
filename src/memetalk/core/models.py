@@ -121,6 +121,9 @@ class MemeAsset(BaseModel):
     file_path: str
     file_sha256: str
     metadata: MemeMetadata
+    index_status: str = "ready"
+    semantic_index_version: str = ""
+    reply_index_version: str = ""
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 

@@ -34,6 +34,10 @@ class EmbeddingProvider(ABC):
     def index_identity(self) -> str:
         raise NotImplementedError
 
+    @abstractmethod
+    def embedding_dimensions(self) -> int | None:
+        raise NotImplementedError
+
 
 class QueryAnalyzer(ABC):
     name: str
