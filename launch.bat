@@ -102,17 +102,28 @@ if errorlevel 1 (
 echo.
 echo       Dependencies ready.
 set "VENV_PY=%CD%\%VENV_DIR%\Scripts\python.exe"
+set "TELEGRAM_LOG_OUT=%CD%\data\telegram_bot.stdout.log"
+set "TELEGRAM_LOG_ERR=%CD%\data\telegram_bot.stderr.log"
+set "TELEGRAM_FLAG_FILE=%TEMP%\memetalk_telegram_autostart.txt"
 
 set "TELEGRAM_AUTOSTART=0"
-for /f %%i in ('"%VENV_PY%" -c "import os, pathlib, tomllib; p=pathlib.Path(r'data/memetalk_config.toml'); data=tomllib.loads(p.read_text(encoding='utf-8')) if p.exists() else {}; enabled=os.getenv('MEMETALK_TELEGRAM_ENABLED', str(data.get('telegram_enabled', ''))); token=os.getenv('MEMETALK_TELEGRAM_BOT_TOKEN', str(data.get('telegram_bot_token', ''))); print('1' if enabled.strip().lower() in {'1','true','yes','on'} and token.strip() else '0')"' ) do set "TELEGRAM_AUTOSTART=%%i"
+del "%TELEGRAM_FLAG_FILE%" >nul 2>&1
+"%VENV_PY%" -m memetalk.cli.main telegram should-autostart > "%TELEGRAM_FLAG_FILE%"
+if errorlevel 1 (
+    echo       [WARN] Failed to evaluate Telegram auto-start settings. Defaulting to disabled.
+) else if exist "%TELEGRAM_FLAG_FILE%" (
+    set /p TELEGRAM_AUTOSTART=<"%TELEGRAM_FLAG_FILE%"
+)
 
 :: ============================================================
 ::  6. Launch Streamlit
 :: ============================================================
 echo [5/5] Launching MemeTalk UI ...
 if "%TELEGRAM_AUTOSTART%"=="1" (
-    echo       Telegram chat enabled. Starting Telegram bot in a separate window ...
-    start "MemeTalk Telegram Bot" "%VENV_PY%" -m memetalk.cli.main telegram run
+    echo       Telegram chat enabled. Starting Telegram bot ...
+    if not exist "data" mkdir "data"
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%VENV_PY%' -WorkingDirectory '%CD%' -ArgumentList @('-m','memetalk.cli.main','telegram','run') -RedirectStandardOutput '%TELEGRAM_LOG_OUT%' -RedirectStandardError '%TELEGRAM_LOG_ERR%'"
+    echo       Telegram bot logs: %TELEGRAM_LOG_OUT% / %TELEGRAM_LOG_ERR%
 ) else (
     echo       Telegram chat disabled or bot token missing.
 )

@@ -6,7 +6,14 @@ import pytest
 
 from memetalk.config import AppSettings
 from memetalk.core.models import QueryAnalysis, SearchMode, SearchResponse, SearchResult, SearchResultDebug, SearchTrace
-from memetalk.telegram.bot import validate_telegram_settings
+from memetalk.telegram.bot import (
+    TELEGRAM_HISTORY_LIMIT,
+    _append_conversation_history,
+    _load_conversation_history,
+    _send_meme_only_reply,
+    validate_telegram_settings,
+)
+from memetalk.telegram.router import TelegramConversationMessage, TelegramDecision, build_conversation_messages
 from memetalk.telegram.runtime import DirectTelegramSearchClient
 
 
@@ -34,6 +41,30 @@ class FakeRepository:
     def get_asset_by_id(self, image_id: str):
         self.requested_ids.append(image_id)
         return SimpleNamespace(file_path=str(self.file_path))
+
+
+class FakeMessage:
+    def __init__(self) -> None:
+        self.photo_calls: list[dict[str, object]] = []
+        self.text_calls: list[str] = []
+
+    async def reply_photo(self, *, photo, caption=None) -> None:
+        self.photo_calls.append({"photo": photo, "caption": caption})
+
+    async def reply_text(self, text: str) -> None:
+        self.text_calls.append(text)
+
+
+class FakeTelegramSearchClient:
+    def __init__(self, results: list[SearchResult], image_bytes: bytes) -> None:
+        self.results = results
+        self.image_bytes = image_bytes
+
+    async def search_memes(self, query: str, mode: str = "reply", top_n: int = 3) -> list[SearchResult]:
+        return self.results
+
+    async def get_meme_image(self, image_id: str) -> bytes:
+        return self.image_bytes
 
 
 def test_validate_telegram_settings_requires_enable_flag_and_token() -> None:
@@ -88,3 +119,63 @@ def test_direct_telegram_search_client_uses_search_service_and_repository(tmp_pa
     assert search_service.calls == [("今天好崩潰", 3, 12, SearchMode.REPLY)]
     assert repository.requested_ids == ["img-1"]
     assert image_bytes == b"fake-image"
+
+
+def test_send_meme_only_reply_sends_photo_without_caption_or_extra_text() -> None:
+    message = FakeMessage()
+    results = [
+        SearchResult(
+            image_id="img-1",
+            image_url="http://localhost/api/v1/assets/img-1",
+            reason="這段 reason 不應該出現在 Telegram caption",
+            score=0.91,
+            template_name="崩潰貓",
+            emotion_tags=["崩潰"],
+            intent_tags=["吐槽"],
+            debug=SearchResultDebug(candidate_sources=["reply_text"]),
+        )
+    ]
+    search_client = FakeTelegramSearchClient(results, b"image-bytes")
+
+    sent, history_summary = asyncio.run(
+        _send_meme_only_reply(
+            message,
+            TelegramDecision(action="both", text_response="這段文字不應該另外送出", search_query="崩潰"),
+            search_client,
+        )
+    )
+
+    assert sent is True
+    assert history_summary == "已用梗圖回覆（搜尋詞：崩潰）"
+    assert len(message.photo_calls) == 1
+    assert message.photo_calls[0]["caption"] is None
+    assert message.text_calls == []
+
+
+def test_conversation_history_is_bounded_and_normalized() -> None:
+    chat_data: dict[str, object] = {}
+
+    for index in range(TELEGRAM_HISTORY_LIMIT + 3):
+        _append_conversation_history(chat_data, "user", f" user-{index} ")
+
+    history = _load_conversation_history(chat_data)
+
+    assert len(history) == TELEGRAM_HISTORY_LIMIT
+    assert history[0].content == "user-3"
+    assert history[-1].content == f"user-{TELEGRAM_HISTORY_LIMIT + 2}"
+
+
+def test_build_conversation_messages_includes_recent_history_before_current_user() -> None:
+    history = [
+        TelegramConversationMessage(role="user", content="昨天真的很慘"),
+        TelegramConversationMessage(role="assistant", content="已用梗圖回覆（搜尋詞：崩潰）"),
+    ]
+
+    messages = build_conversation_messages("今天又來一次", history)
+
+    assert messages[0]["role"] == "system"
+    assert messages[1:] == [
+        {"role": "user", "content": "昨天真的很慘"},
+        {"role": "assistant", "content": "已用梗圖回覆（搜尋詞：崩潰）"},
+        {"role": "user", "content": "今天又來一次"},
+    ]

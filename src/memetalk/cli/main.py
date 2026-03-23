@@ -34,6 +34,7 @@ def build_parser() -> argparse.ArgumentParser:
     telegram_parser = subparsers.add_parser("telegram", help="Run Telegram chat integration")
     telegram_subparsers = telegram_parser.add_subparsers(dest="telegram_command", required=True)
     telegram_subparsers.add_parser("run", help="Start the Telegram long-polling bot")
+    telegram_subparsers.add_parser("should-autostart", help="Print 1 when Telegram auto-start is enabled")
     return parser
 
 
@@ -83,6 +84,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         from memetalk.telegram.bot import run_polling
 
         run_polling(load_settings())
+        return 0
+
+    if args.command == "telegram" and args.telegram_command == "should-autostart":
+        settings = load_settings()
+        enabled = settings.telegram_enabled and bool((settings.telegram_bot_token or "").strip())
+        print("1" if enabled else "0")
         return 0
 
     parser.print_help()

@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Literal, Protocol
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 from memetalk.config import AppSettings
 from memetalk.providers.json_utils import extract_json_object
@@ -60,17 +60,38 @@ class TelegramDecision(BaseModel):
         return self
 
 
+class TelegramConversationMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+
+    @field_validator("content")
+    @classmethod
+    def normalize_content(cls, value: str) -> str:
+        trimmed = value.strip()
+        if not trimmed:
+            raise ValueError("Telegram conversation history entries must not be empty.")
+        return trimmed
+
+
 class TelegramRouter(Protocol):
     name: str
 
-    async def decide(self, user_message: str) -> TelegramDecision:
+    async def decide(
+        self,
+        user_message: str,
+        conversation_history: list[TelegramConversationMessage] | None = None,
+    ) -> TelegramDecision:
         raise NotImplementedError
 
 
 class MockTelegramRouter:
     name = "mock-telegram-router"
 
-    async def decide(self, user_message: str) -> TelegramDecision:
+    async def decide(
+        self,
+        user_message: str,
+        conversation_history: list[TelegramConversationMessage] | None = None,
+    ) -> TelegramDecision:
         text = user_message.strip()
         lowered = text.lower()
         emotive_terms = (
@@ -126,11 +147,15 @@ class OpenAICompatibleTelegramRouter:
         self._model = profile.chat_model
         self.name = f"{profile.label}-telegram-router"
 
-    async def decide(self, user_message: str) -> TelegramDecision:
+    async def decide(
+        self,
+        user_message: str,
+        conversation_history: list[TelegramConversationMessage] | None = None,
+    ) -> TelegramDecision:
         last_error: Exception | None = None
         for attempt in range(2):
             try:
-                return await self._call_llm(user_message)
+                return await self._call_llm(user_message, conversation_history=conversation_history)
             except Exception as exc:
                 last_error = exc
                 if attempt == 0:
@@ -139,14 +164,16 @@ class OpenAICompatibleTelegramRouter:
                 break
         raise RuntimeError("Telegram router failed to decide a response.") from last_error
 
-    async def _call_llm(self, user_message: str) -> TelegramDecision:
+    async def _call_llm(
+        self,
+        user_message: str,
+        conversation_history: list[TelegramConversationMessage] | None = None,
+    ) -> TelegramDecision:
+        messages = build_conversation_messages(user_message, conversation_history)
         try:
             response = await self._client.chat.completions.create(
                 model=self._model,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": user_message},
-                ],
+                messages=messages,
                 response_format={"type": "json_object"},
                 temperature=0.3,
             )
@@ -154,10 +181,7 @@ class OpenAICompatibleTelegramRouter:
             logger.info("json_object format unavailable for Telegram router, falling back to prompt-only JSON", exc_info=True)
             response = await self._client.chat.completions.create(
                 model=self._model,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": user_message},
-                ],
+                messages=messages,
                 temperature=0.3,
             )
         payload = response.choices[0].message.content or "{}"
@@ -178,11 +202,15 @@ class ClaudeTelegramRouter:
         self._model = settings.claude_chat_model
         self.name = "claude-telegram-router"
 
-    async def decide(self, user_message: str) -> TelegramDecision:
+    async def decide(
+        self,
+        user_message: str,
+        conversation_history: list[TelegramConversationMessage] | None = None,
+    ) -> TelegramDecision:
         last_error: Exception | None = None
         for attempt in range(2):
             try:
-                return await self._call_llm(user_message)
+                return await self._call_llm(user_message, conversation_history=conversation_history)
             except Exception as exc:
                 last_error = exc
                 if attempt == 0:
@@ -191,12 +219,16 @@ class ClaudeTelegramRouter:
                 break
         raise RuntimeError("Claude Telegram router failed to decide a response.") from last_error
 
-    async def _call_llm(self, user_message: str) -> TelegramDecision:
+    async def _call_llm(
+        self,
+        user_message: str,
+        conversation_history: list[TelegramConversationMessage] | None = None,
+    ) -> TelegramDecision:
         response = await self._client.messages.create(
             model=self._model,
             max_tokens=512,
             system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": user_message}],
+            messages=build_anthropic_messages(user_message, conversation_history),
         )
         payload = "".join(block.text for block in response.content if getattr(block, "type", None) == "text")
         return TelegramDecision.model_validate(extract_json_object(payload))
@@ -230,3 +262,25 @@ def _resolve_compatible_api_key(profile: CompatibleProviderProfile) -> str:
     raise RuntimeError(
         f"Telegram chat requires an API key for provider `{profile.label}` unless a compatible base URL is configured."
     )
+
+
+def build_conversation_messages(
+    user_message: str,
+    conversation_history: list[TelegramConversationMessage] | None = None,
+) -> list[dict[str, str]]:
+    messages: list[dict[str, str]] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    for item in conversation_history or []:
+        messages.append({"role": item.role, "content": item.content})
+    messages.append({"role": "user", "content": user_message.strip()})
+    return messages
+
+
+def build_anthropic_messages(
+    user_message: str,
+    conversation_history: list[TelegramConversationMessage] | None = None,
+) -> list[dict[str, str]]:
+    messages: list[dict[str, str]] = []
+    for item in conversation_history or []:
+        messages.append({"role": item.role, "content": item.content})
+    messages.append({"role": "user", "content": user_message.strip()})
+    return messages

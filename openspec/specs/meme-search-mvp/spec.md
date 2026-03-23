@@ -164,6 +164,9 @@
 - For free-form text messages, the bot MUST decide between `text`, `meme`, and `both`.
 - The bot MUST reuse the active MemeTalk provider/backend settings for routing decisions instead of introducing a second unrelated model configuration surface.
 - The bot MUST execute meme retrieval through the in-repo application services directly and MUST NOT require a separately running FastAPI server when used with the Streamlit app's Direct Mode.
+- The Telegram bot MUST keep a bounded short-term conversation history per chat in memory and pass that recent context into subsequent routing decisions.
+- The Telegram short-term conversation history MAY reset when the bot process restarts.
+- When meme retrieval succeeds, the Telegram bot MUST send only the meme image without caption text and MUST suppress any additional follow-up text for that reply, even when routing decided `both`.
 - If routing fails, the bot MUST send a plain-text apology response.
 - If meme retrieval fails or returns no result, the bot MUST fall back to plain-text output.
 - If a meme image cannot be read, the bot MUST fall back to a plain-text explanation derived from the selected result.
