@@ -6,7 +6,7 @@ import streamlit as st
 
 from memetalk.app.container import build_container
 from memetalk.app.query_image import temporary_query_image
-from memetalk.app.settings_io import load_settings
+from memetalk.app.settings_io import DEFAULT_CONFIG_PATH, load_settings, merge_settings, save_settings
 from memetalk.app.ui import render_notice, render_section, setup_page
 from memetalk.core.models import SearchMode
 
@@ -27,7 +27,30 @@ def _get_container():
     return st.session_state["container"]
 
 
+def _clear_runtime_cache() -> None:
+    st.session_state.pop("container", None)
+
+
+def _persist_search_defaults(display_top_n: int, rerank_pool: int, candidate_k: int) -> None:
+    settings = load_settings()
+    new_settings = merge_settings(
+        settings,
+        {
+            "search_top_n_default": display_top_n,
+            "search_rerank_pool_size": rerank_pool,
+            "search_candidate_k_default": candidate_k,
+        },
+    )
+    save_settings(new_settings)
+    _clear_runtime_cache()
+    st.session_state["search_params_flash_message"] = f"搜尋預設已儲存至 `{DEFAULT_CONFIG_PATH}`"
+
+
 _MODE_OPTIONS = {"適合回覆": SearchMode.REPLY, "契合語意": SearchMode.SEMANTIC}
+
+flash_message = st.session_state.pop("search_params_flash_message", None)
+if flash_message:
+    st.success(flash_message)
 
 with st.sidebar:
     st.header("搜尋參數")
@@ -54,6 +77,10 @@ with st.sidebar:
         value=_defaults.search_candidate_k_default,
         help="每條路由的最大檢索數量",
     )
+    st.caption("只按「搜尋梗圖」只會影響本次查詢；按下面按鈕才會變成下次打開時的預設值。")
+    if st.button("儲存目前參數為預設", use_container_width=True):
+        _persist_search_defaults(display_top_n, rerank_pool, candidate_k)
+        st.rerun()
 
 render_section("查詢條件", "回覆模式偏向能直接拿去回嘴，語意模式偏向找情境接近的梗圖。")
 with st.container(border=True):

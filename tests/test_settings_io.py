@@ -81,3 +81,25 @@ def test_merge_settings_preserves_telegram_token_when_disabling() -> None:
 
     assert merged.telegram_enabled is False
     assert merged.telegram_bot_token == "123:token"
+
+
+def test_save_and_load_settings_round_trip_search_defaults(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("MEMETALK_SEARCH_CANDIDATE_K", raising=False)
+    monkeypatch.delenv("MEMETALK_SEARCH_TOP_N", raising=False)
+    monkeypatch.delenv("MEMETALK_SEARCH_RERANK_POOL_SIZE", raising=False)
+    config_path = tmp_path / "memetalk_config.toml"
+    settings = AppSettings(
+        provider_backend="mock",
+        vector_backend="memory",
+        ocr_backend="mock",
+        search_candidate_k_default=37,
+        search_top_n_default=9,
+        search_rerank_pool_size=21,
+    )
+
+    save_settings(settings, config_path)
+    loaded = load_settings(config_path)
+
+    assert loaded.search_candidate_k_default == 37
+    assert loaded.search_top_n_default == 9
+    assert loaded.search_rerank_pool_size == 21

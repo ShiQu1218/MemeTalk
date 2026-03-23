@@ -111,6 +111,7 @@
   - **Search** (`pages/3_🔍_Search.py`): search mode selector (適合回覆 / 契合語意), natural-language query input, optional query image uploader with preview, query analysis display, top-N result cards with images loaded from local file paths, recommended reason text, and visible emotion and intent tags.
 - The Search page MUST include an optional input for preferred meme tone (for example 嘴砲, 冷淡, 可憐, 陰陽怪氣) and pass that preference into query analysis and reranking.
 - The Search page MUST provide sidebar controls that let users adjust at runtime: display result count (`top_n`), rerank pool size, and initial retrieval count (`candidate_k`). Default values MUST come from the persisted configuration.
+- The Search page MUST allow users to persist the current sidebar search parameter values (`top_n`, rerank pool size, `candidate_k`) back to `data/memetalk_config.toml` as the next-launch defaults without clearing unrelated stored fields.
 - The Search page MUST allow searches to run when only a query image is provided, and MUST show a validation error only when both text and image inputs are absent.
 - Settings MUST support a priority chain: environment variables > TOML config file > pydantic defaults.
 - Settings persistence MUST merge submitted values with the existing persisted settings and MUST NOT clear unrelated stored fields such as `meme_folder` during a partial update.
