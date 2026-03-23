@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from memetalk.app.indexer import _sha256_file
 from memetalk.core.models import (
     MemeAsset,
     MemeMetadata,
@@ -145,7 +145,7 @@ class SearchService:
         return _ResolvedSearchInput(effective_query=text_query, query_analysis=merged_analysis)
 
     def _get_query_image_metadata(self, image_path: Path) -> MemeMetadata:
-        file_hash = self._sha256_file(image_path)
+        file_hash = _sha256_file(image_path)
         cache_key = json.dumps(
             {
                 "metadata_provider": self.providers.metadata_provider.name,
@@ -266,13 +266,6 @@ class SearchService:
             seen.add(normalized)
             merged.append(normalized)
         return merged
-
-    def _sha256_file(self, path: Path) -> str:
-        digest = hashlib.sha256()
-        with path.open("rb") as handle:
-            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                digest.update(chunk)
-        return digest.hexdigest()
 
     def _retrieve_candidates(
         self,

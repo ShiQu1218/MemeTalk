@@ -214,28 +214,6 @@ class SQLiteMemeRepository:
         row = self._fetch_one("SELECT * FROM meme_assets WHERE file_sha256 = ?", (file_sha256,))
         return self._row_to_asset(row) if row else None
 
-    def is_asset_current(
-        self,
-        file_sha256: str,
-        semantic_index_version: str,
-        reply_index_version: str,
-    ) -> bool:
-        row = self._fetch_one(
-            """
-            SELECT index_status, semantic_index_version, reply_index_version
-            FROM meme_assets
-            WHERE file_sha256 = ?
-            """,
-            (file_sha256,),
-        )
-        if row is None:
-            return False
-        return (
-            (row["index_status"] or "") == "ready"
-            and (row["semantic_index_version"] or "") == semantic_index_version
-            and (row["reply_index_version"] or "") == reply_index_version
-        )
-
     def get_asset_by_id(self, image_id: str) -> MemeAsset | None:
         row = self._fetch_one("SELECT * FROM meme_assets WHERE image_id = ?", (image_id,))
         return self._row_to_asset(row) if row else None

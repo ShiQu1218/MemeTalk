@@ -86,9 +86,8 @@ if st.button("搜尋梗圖", type="primary", use_container_width=True):
                 )
             with image_context as query_image_path:
                 with st.spinner("搜尋中..."):
-                    container = _get_container()
-                    container.search_service.rerank_pool_size = rerank_pool
-                    response = container.search_service.search(
+                    _container.search_service.rerank_pool_size = rerank_pool
+                    response = _container.search_service.search(
                         query=query,
                         top_n=display_top_n,
                         candidate_k=candidate_k,
