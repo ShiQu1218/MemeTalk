@@ -5,29 +5,32 @@ import streamlit as st
 from memetalk.app.settings_io import DEFAULT_CONFIG_PATH, load_settings
 from memetalk.app.ui import format_path, render_notice, render_section, setup_page
 
+settings = load_settings()
+
 setup_page(
     page_title="MemeTalk",
     page_icon="🎭",
     title="MemeTalk",
     subtitle="把梗圖索引、搜尋與設定集中在一個比較順手的工作台。",
     eyebrow="Dashboard",
-    chips=("Direct Mode", "Streamlit", "Local Search"),
+    chips=("Direct Mode", "Streamlit", "Local Search", f"Telegram: {'On' if settings.telegram_enabled else 'Off'}"),
 )
-
-settings = load_settings()
 
 render_section("系統快覽", "先確認目前的執行設定與預設索引來源。")
 top_left, top_right = st.columns(2)
 with top_left:
-    provider_col, vector_col = st.columns(2)
+    provider_col, vector_col, telegram_col = st.columns(3)
     provider_col.metric("Provider", settings.provider_backend)
     vector_col.metric("Vector Backend", settings.vector_backend)
+    telegram_col.metric("Telegram Chat", "啟用" if settings.telegram_enabled else "關閉")
 with top_right:
     ocr_col, folder_col = st.columns(2)
     ocr_col.metric("OCR Backend", settings.ocr_backend)
     folder_col.metric("預設梗圖資料夾", "已設定" if settings.meme_folder else "未設定")
 st.caption(f"設定檔位置：`{DEFAULT_CONFIG_PATH}`")
 st.caption(f"預設梗圖資料夾：`{format_path(settings.meme_folder)}`")
+if settings.telegram_enabled and not (settings.telegram_bot_token or "").strip():
+    render_notice("Telegram 設定不完整", "目前已啟用 Telegram，但尚未設定 Bot Token。", tone="warning")
 
 render_section("索引與健康", "首頁直接看到資料量與初始化狀態，減少來回切頁確認。")
 status_left, status_right = st.columns(2)

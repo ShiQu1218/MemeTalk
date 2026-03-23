@@ -106,7 +106,7 @@
 - The app MUST be launchable with a single command: `streamlit run streamlit_app.py`.
 - The app MUST include the following pages:
   - **Dashboard** (`streamlit_app.py`): system status overview showing current provider, vector backend, indexed meme count, and a health check.
-  - **Settings** (`pages/1_⚙️_Settings.py`): provider selection (openai / lmstudio / mock), API key input, base URL, model configuration, vector backend, OCR backend, and a persisted default meme folder path. Settings MUST be persisted to a TOML file (`data/memetalk_config.toml`).
+  - **Settings** (`pages/1_⚙️_Settings.py`): provider selection (openai / lmstudio / mock), API key input, base URL, model configuration, vector backend, OCR backend, Telegram chat enable toggle, Telegram bot token input, and a persisted default meme folder path. Settings MUST be persisted to a TOML file (`data/memetalk_config.toml`).
   - **Index** (`pages/2_📦_Index.py`): meme folder path input seeded from the saved default meme folder, optional force-reindex toggle, progress display, and result summary (processed / indexed / skipped / failed counts with error details).
   - **Search** (`pages/3_🔍_Search.py`): search mode selector (適合回覆 / 契合語意), natural-language query input, optional query image uploader with preview, query analysis display, top-N result cards with images loaded from local file paths, recommended reason text, and visible emotion and intent tags.
 - The Search page MUST include an optional input for preferred meme tone (for example 嘴砲, 冷淡, 可憐, 陰陽怪氣) and pass that preference into query analysis and reranking.
@@ -152,6 +152,22 @@
 - The repository MUST provide an offline tuning command `eval tune --cases <file> [--output <file>]` that optimizes the deterministic scoring profile against the evaluation cases and writes the tuned profile to JSON.
 - The tuning objective MUST penalize hard-negative hits in addition to improving retrieval relevance metrics.
 
+### REQ-MVP-010 Telegram Chat Integration
+- The repository MUST include an optional Telegram long-polling bot integration inside the same codebase.
+- Telegram bot runtime settings MUST be configurable through the same `AppSettings` source chain used by the UI (`environment variables > TOML config file > pydantic defaults`), including:
+  - `telegram_enabled`
+  - `telegram_bot_token`
+- The Settings page MUST allow users to persist `telegram_enabled` and `telegram_bot_token` without clearing unrelated settings.
+- The CLI MUST expose a Telegram run command that starts the bot only when Telegram chat is enabled and a bot token is configured.
+- `launch.bat` MUST start the Telegram bot in a separate process when Telegram chat is enabled and a bot token is configured, without blocking the Streamlit UI startup flow.
+- The Telegram bot MUST support `/start`, `/help`, and free-form text messages.
+- For free-form text messages, the bot MUST decide between `text`, `meme`, and `both`.
+- The bot MUST reuse the active MemeTalk provider/backend settings for routing decisions instead of introducing a second unrelated model configuration surface.
+- The bot MUST execute meme retrieval through the in-repo application services directly and MUST NOT require a separately running FastAPI server when used with the Streamlit app's Direct Mode.
+- If routing fails, the bot MUST send a plain-text apology response.
+- If meme retrieval fails or returns no result, the bot MUST fall back to plain-text output.
+- If a meme image cannot be read, the bot MUST fall back to a plain-text explanation derived from the selected result.
+
 ## Acceptance
-- The project MUST include automated tests covering schema validation, embedding text composition, provider registry, OCR success/empty/failure branching, template normalization, multi-route retrieval, rerank fallback, index schema/version isolation, evaluation reporting, indexing, image-query search, and API response shape.
+- The project MUST include automated tests covering schema validation, embedding text composition, provider registry, OCR success/empty/failure branching, template normalization, multi-route retrieval, rerank fallback, index schema/version isolation, evaluation reporting, indexing, image-query search, API response shape, and Telegram settings/runtime integration.
 - A minimal dataset of static images MUST be indexable and searchable end-to-end without changing code.

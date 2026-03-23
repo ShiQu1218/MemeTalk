@@ -92,20 +92,30 @@ echo       Virtualenv activated.
 ::  5. Install / update dependencies
 :: ============================================================
 echo [4/5] Installing dependencies ...
-echo       pip install -e .[openai,chroma]
+echo       pip install -e .[openai,chroma,telegram]
 echo.
-pip install -e .[openai,chroma] --quiet --disable-pip-version-check
+pip install -e .[openai,chroma,telegram] --quiet --disable-pip-version-check
 if errorlevel 1 (
     echo   [ERROR] Dependency installation failed.
     goto :error
 )
 echo.
 echo       Dependencies ready.
+set "VENV_PY=%CD%\%VENV_DIR%\Scripts\python.exe"
+
+set "TELEGRAM_AUTOSTART=0"
+for /f %%i in ('"%VENV_PY%" -c "import os, pathlib, tomllib; p=pathlib.Path(r'data/memetalk_config.toml'); data=tomllib.loads(p.read_text(encoding='utf-8')) if p.exists() else {}; enabled=os.getenv('MEMETALK_TELEGRAM_ENABLED', str(data.get('telegram_enabled', ''))); token=os.getenv('MEMETALK_TELEGRAM_BOT_TOKEN', str(data.get('telegram_bot_token', ''))); print('1' if enabled.strip().lower() in {'1','true','yes','on'} and token.strip() else '0')"' ) do set "TELEGRAM_AUTOSTART=%%i"
 
 :: ============================================================
 ::  6. Launch Streamlit
 :: ============================================================
 echo [5/5] Launching MemeTalk UI ...
+if "%TELEGRAM_AUTOSTART%"=="1" (
+    echo       Telegram chat enabled. Starting Telegram bot in a separate window ...
+    start "MemeTalk Telegram Bot" "%VENV_PY%" -m memetalk.cli.main telegram run
+) else (
+    echo       Telegram chat disabled or bot token missing.
+)
 echo.
 echo   ---------------------------------------------------------------
 echo   Browser will open automatically, or go to http://localhost:8501

@@ -29,12 +29,16 @@ def test_merge_settings_preserves_meme_folder_when_other_fields_change() -> None
 
 def test_save_and_load_settings_round_trip_meme_folder(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.delenv("MEMETALK_MEME_FOLDER", raising=False)
+    monkeypatch.delenv("MEMETALK_TELEGRAM_ENABLED", raising=False)
+    monkeypatch.delenv("MEMETALK_TELEGRAM_BOT_TOKEN", raising=False)
     config_path = tmp_path / "memetalk_config.toml"
     settings = AppSettings(
         provider_backend="mock",
         vector_backend="memory",
         ocr_backend="mock",
         meme_folder="D:/Memes",
+        telegram_enabled=True,
+        telegram_bot_token="123:token",
     )
 
     save_settings(settings, config_path)
@@ -42,6 +46,8 @@ def test_save_and_load_settings_round_trip_meme_folder(tmp_path: Path, monkeypat
 
     assert loaded.meme_folder == "D:/Memes"
     assert loaded.provider_backend == "mock"
+    assert loaded.telegram_enabled is True
+    assert loaded.telegram_bot_token == "123:token"
 
 
 def test_from_env_reads_meme_folder(monkeypatch) -> None:
@@ -50,3 +56,28 @@ def test_from_env_reads_meme_folder(monkeypatch) -> None:
     settings = AppSettings.from_env()
 
     assert settings.meme_folder == "D:/EnvMemes"
+
+
+def test_from_env_reads_telegram_settings(monkeypatch) -> None:
+    monkeypatch.setenv("MEMETALK_TELEGRAM_ENABLED", "true")
+    monkeypatch.setenv("MEMETALK_TELEGRAM_BOT_TOKEN", "999:env-token")
+
+    settings = AppSettings.from_env()
+
+    assert settings.telegram_enabled is True
+    assert settings.telegram_bot_token == "999:env-token"
+
+
+def test_merge_settings_preserves_telegram_token_when_disabling() -> None:
+    base = AppSettings(
+        provider_backend="mock",
+        vector_backend="memory",
+        ocr_backend="mock",
+        telegram_enabled=True,
+        telegram_bot_token="123:token",
+    )
+
+    merged = merge_settings(base, {"telegram_enabled": False})
+
+    assert merged.telegram_enabled is False
+    assert merged.telegram_bot_token == "123:token"

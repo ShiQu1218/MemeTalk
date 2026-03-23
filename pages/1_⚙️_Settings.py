@@ -33,6 +33,7 @@ setup_page(
         f"Provider: {settings.provider_backend}",
         f"Vector: {settings.vector_backend}",
         f"OCR: {settings.ocr_backend}",
+        f"Telegram: {'on' if settings.telegram_enabled else 'off'}",
     ),
 )
 
@@ -109,7 +110,7 @@ with left_col:
         else:
             render_notice("Mock 模式", "適合先驗證 UI 與流程，不需要外部 API。", tone="info")
 
-    render_section("儲存與索引預設", "這裡的梗圖資料夾是正式預設值，Index 頁只會拿來預填，不會自動覆寫。")
+    render_section("儲存、索引預設與 Telegram", "這裡的梗圖資料夾是正式預設值，Telegram 也會共用同一份設定檔。")
     with st.container(border=True):
         vector_index = vector_options.index(settings.vector_backend) if settings.vector_backend in vector_options else 0
         vector_backend = st.selectbox("Vector Backend", vector_options, index=vector_index)
@@ -122,6 +123,19 @@ with left_col:
             value=settings.meme_folder,
             placeholder="例如：D:/MemeData",
             help="作為 Index 頁的預設路徑。Index 頁臨時修改不會回寫這個設定。",
+        )
+
+        st.divider()
+        telegram_enabled = st.checkbox(
+            "啟用 Telegram 聊天功能",
+            value=settings.telegram_enabled,
+            help="啟用後，`launch.bat` 會在下次啟動時另外拉起 Telegram long-polling bot。",
+        )
+        telegram_bot_token = st.text_input(
+            "Telegram Bot Token",
+            value=settings.telegram_bot_token or "",
+            type="password",
+            help="向 @BotFather 取得的 bot token。即使暫時關閉 Telegram，也可以先保存 token。",
         )
 
 with right_col:
@@ -137,6 +151,7 @@ with right_col:
             """
 - 儲存時會以現有設定為基底，只覆蓋你在表單中修改的欄位。
 - `meme_folder` 不會再因為儲存其他 Provider 欄位而被清空。
+- `telegram_enabled` 和 `telegram_bot_token` 也會一起保存，不會覆蓋其他欄位。
 - 如果剛改完設定，會一併清掉快取中的 runtime container，讓其他頁面讀到最新設定。
 """
         )
@@ -148,16 +163,24 @@ with right_col:
 - 想固定索引來源：在這頁儲存預設梗圖資料夾。
 - 想臨時跑另一包素材：到 Index 頁直接輸入路徑即可。
 - 模型或 API 切換後，先回 Dashboard 看健康檢查是否正常。
+- 想開 Telegram：先儲存 `Bot Token`，再把開關打開；也可以用 `memetalk telegram run` 手動啟動。
 """
         )
 
 st.divider()
 if st.button("儲存設定", type="primary", use_container_width=True):
+    normalized_telegram_token = _clean_optional_text(telegram_bot_token)
+    if telegram_enabled and normalized_telegram_token is None:
+        st.error("啟用 Telegram 聊天功能時，必須填入 Telegram Bot Token。")
+        st.stop()
+
     updates: dict[str, object] = {
         "provider_backend": provider_backend,
         "vector_backend": vector_backend,
         "ocr_backend": ocr_backend,
         "meme_folder": meme_folder.strip(),
+        "telegram_enabled": telegram_enabled,
+        "telegram_bot_token": normalized_telegram_token,
     }
 
     if provider_backend == "openai":

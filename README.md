@@ -404,7 +404,8 @@ launch.bat
 
 - 偵測 Python
 - 建立或重用 `.venv`
-- 安裝 `.[openai,chroma]`
+- 安裝 `.[openai,chroma,telegram]`
+- 依設定決定是否另外啟動 Telegram bot
 - 啟動 Streamlit
 
 如果你要用 PaddleOCR 或 Claude，仍需另外補裝對應 extras。
@@ -413,6 +414,7 @@ launch.bat
 
 1. `⚙️ Settings`
    - 選 provider backend、model、vector backend、OCR backend
+   - 可設定 Telegram 聊天開關與 `Bot Token`
    - 目前 UI 直接支援 `openai`、`lmstudio`、`ollama`、`llama_cpp`、`gemini`、`claude`、`mock`
    - 儲存預設梗圖資料夾
 2. `📦 Index`
@@ -450,6 +452,21 @@ memetalk eval tune --cases D:/path/to/eval_cases.json --output data/search_scori
 ```bash
 uvicorn memetalk.api.main:app --reload
 ```
+
+### 啟動 Telegram Bot
+
+先在 `Settings` 頁面保存：
+
+- `啟用 Telegram 聊天功能`
+- `Telegram Bot Token`
+
+之後可直接執行：
+
+```bash
+memetalk telegram run
+```
+
+若使用 `launch.bat`，且設定中已啟用 Telegram 並保存 token，會在啟動 UI 時自動另開視窗啟動 bot。
 
 API endpoints：
 
@@ -494,6 +511,8 @@ API endpoints：
 - `MEMETALK_SEARCH_CANDIDATE_K`
 - `MEMETALK_SEARCH_TOP_N`
 - `MEMETALK_SEARCH_SCORING_PROFILE_PATH`
+- `MEMETALK_TELEGRAM_ENABLED`
+- `MEMETALK_TELEGRAM_BOT_TOKEN`
 
 預設 scoring profile 路徑是：
 

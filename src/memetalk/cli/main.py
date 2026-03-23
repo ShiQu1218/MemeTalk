@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Sequence
 
 from memetalk.app.container import build_container
-from memetalk.config import AppSettings
+from memetalk.app.settings_io import load_settings
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -30,6 +30,10 @@ def build_parser() -> argparse.ArgumentParser:
     eval_tune_parser.add_argument("--cases", required=True, help="JSON file containing evaluation cases")
     eval_tune_parser.add_argument("--output", help="Path to write the tuned scoring profile JSON")
     eval_tune_parser.add_argument("--passes", type=int, default=2, help="Number of coordinate-search passes")
+
+    telegram_parser = subparsers.add_parser("telegram", help="Run Telegram chat integration")
+    telegram_subparsers = telegram_parser.add_subparsers(dest="telegram_command", required=True)
+    telegram_subparsers.add_parser("run", help="Start the Telegram long-polling bot")
     return parser
 
 
@@ -38,14 +42,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "index" and args.index_command == "build":
-        settings = AppSettings.from_env()
+        settings = load_settings()
         container = build_container(settings)
         summary = container.indexing_service.build_index(Path(args.source), reindex=args.reindex)
         print(json.dumps(summary.model_dump(mode="json"), ensure_ascii=False, indent=2))
         return 0
 
     if args.command == "eval" and args.eval_command == "run":
-        settings = AppSettings.from_env()
+        settings = load_settings()
         container = build_container(settings)
         cases = container.evaluation_service.load_cases(Path(args.cases))
         report = container.evaluation_service.run_cases(cases)
@@ -53,7 +57,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     if args.command == "eval" and args.eval_command == "tune":
-        settings = AppSettings.from_env()
+        settings = load_settings()
         container = build_container(settings)
         cases = container.evaluation_service.load_cases(Path(args.cases))
         tuning_report = container.evaluation_service.tune_scoring_profile(cases, passes=args.passes)
@@ -73,6 +77,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 indent=2,
             )
         )
+        return 0
+
+    if args.command == "telegram" and args.telegram_command == "run":
+        from memetalk.telegram.bot import run_polling
+
+        run_polling(load_settings())
         return 0
 
     parser.print_help()

@@ -32,6 +32,9 @@ anthropic = [
 chroma = [
   "chromadb>=1.5.3,<2",
 ]
+telegram = [
+  "python-telegram-bot>=21,<22",
+]
 ocr = [
   "paddleocr==2.10.0",
   "paddlepaddle==3.1.1",

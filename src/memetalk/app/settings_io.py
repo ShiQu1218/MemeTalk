@@ -65,6 +65,8 @@ def load_settings(path: Path = DEFAULT_CONFIG_PATH) -> AppSettings:
         "search_rerank_pool_size": "MEMETALK_SEARCH_RERANK_POOL_SIZE",
         "search_scoring_profile_path": "MEMETALK_SEARCH_SCORING_PROFILE_PATH",
         "meme_folder": "MEMETALK_MEME_FOLDER",
+        "telegram_enabled": "MEMETALK_TELEGRAM_ENABLED",
+        "telegram_bot_token": "MEMETALK_TELEGRAM_BOT_TOKEN",
     }
 
     for field_name in _SETTINGS_FIELDS:

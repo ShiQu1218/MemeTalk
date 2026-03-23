@@ -16,6 +16,18 @@ def _env_int(name: str, default: int) -> int:
     return int(value) if value is not None else default
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
 class AppSettings(BaseModel):
     sqlite_path: Path = Field(default_factory=lambda: Path("data/memetalk.sqlite3"))
     vector_backend: Literal["chroma", "memory"] = "chroma"
@@ -54,6 +66,8 @@ class AppSettings(BaseModel):
     search_rerank_pool_size: int = 16
     search_scoring_profile_path: Path = Field(default_factory=lambda: Path("data/search_scoring_profile.json"))
     meme_folder: str = ""
+    telegram_enabled: bool = False
+    telegram_bot_token: str | None = None
 
     @classmethod
     def from_env(cls) -> "AppSettings":
@@ -95,6 +109,8 @@ class AppSettings(BaseModel):
                 "data/search_scoring_profile.json",
             ),
             meme_folder=os.getenv("MEMETALK_MEME_FOLDER", ""),
+            telegram_enabled=_env_bool("MEMETALK_TELEGRAM_ENABLED", False),
+            telegram_bot_token=os.getenv("MEMETALK_TELEGRAM_BOT_TOKEN"),
         )
 
     def ensure_runtime_dirs(self) -> None:
