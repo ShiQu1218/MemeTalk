@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 from memetalk.config import AppSettings
 from memetalk.core.models import MemeMetadata, OCRExtraction, OCRStatus, QueryAnalysis, RerankCandidate, RerankResult, SearchMode
@@ -19,21 +19,20 @@ JSON_COMPLETION_MAX_ATTEMPTS = 3
 
 
 def _build_image_data_url(image_path: Path, provider_label: str) -> str:
-    suffix = image_path.suffix.lower()
-    if provider_label == "lmstudio" and suffix == ".webp":
-        buffer = io.BytesIO()
-        with Image.open(image_path) as image:
-            image.save(buffer, format="PNG")
-        payload = base64.b64encode(buffer.getvalue()).decode("utf-8")
-        return f"data:image/png;base64,{payload}"
-
-    mime_type = {
-        ".jpg": "image/jpeg",
-        ".jpeg": "image/jpeg",
-        ".png": "image/png",
-        ".webp": "image/webp",
-    }.get(suffix, "image/png")
-    payload = base64.b64encode(image_path.read_bytes()).decode("utf-8")
+    del provider_label
+    buffer = io.BytesIO()
+    with Image.open(image_path) as image:
+        normalized = ImageOps.exif_transpose(image)
+        has_alpha = normalized.mode in {"RGBA", "LA"} or (
+            normalized.mode == "P" and "transparency" in normalized.info
+        )
+        if has_alpha:
+            normalized.convert("RGBA").save(buffer, format="PNG")
+            mime_type = "image/png"
+        else:
+            normalized.convert("RGB").save(buffer, format="JPEG", quality=95)
+            mime_type = "image/jpeg"
+    payload = base64.b64encode(buffer.getvalue()).decode("utf-8")
     return f"data:{mime_type};base64,{payload}"
 
 @dataclass(frozen=True, slots=True)
@@ -127,9 +126,20 @@ class _OpenAICompatibleBase:
 
     def _translate_provider_error(self, exc: Exception, capability: str) -> Exception:
         message = str(exc)
+        normalized_message = message.lower()
         if self.profile.label != "lmstudio":
+            if capability == "vision" and "failed to process image" in normalized_message:
+                return RuntimeError(
+                    "Vision provider 無法處理這張圖片。MemeTalk 已先將圖片正規化為 JPEG/PNG；若仍失敗，請確認目前模型支援圖片輸入。"
+                )
             return exc
         if "No models loaded" not in message:
+            if capability == "vision" and "failed to process image" in normalized_message:
+                return RuntimeError(
+                    "LM Studio 無法處理這張圖片。MemeTalk 已先將圖片正規化為 JPEG/PNG；若仍失敗，"
+                    "請確認目前載入的是支援圖片輸入的 vision-capable model，並將 "
+                    "MEMETALK_LMSTUDIO_VISION_MODEL 設為該模型 id。"
+                )
             return exc
         if capability == "embedding":
             return RuntimeError(

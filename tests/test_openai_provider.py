@@ -7,6 +7,7 @@ from memetalk.config import AppSettings
 from memetalk.core.models import MemeMetadata, OCRStatus, QueryAnalysis, RerankCandidate, SearchMode
 from memetalk.providers.openai_provider import (
     CompatibleEmbeddingProvider,
+    CompatibleMetadataProvider,
     CompatibleQueryAnalyzer,
     CompatibleReranker,
     _build_image_data_url,
@@ -47,11 +48,20 @@ def test_extract_json_object_wraps_top_level_array_for_rerank_results() -> None:
 
 def test_lmstudio_webp_payload_is_transcoded_to_png(tmp_path) -> None:
     image_path = tmp_path / "sample.webp"
-    Image.new("RGB", (8, 8), color=(255, 0, 0)).save(image_path, format="PNG")
+    Image.new("RGBA", (8, 8), color=(255, 0, 0, 128)).save(image_path, format="WEBP")
 
     payload = _build_image_data_url(image_path, "lmstudio")
 
     assert payload.startswith("data:image/png;base64,")
+
+
+def test_compatible_provider_normalizes_rgb_image_to_jpeg(tmp_path) -> None:
+    image_path = tmp_path / "sample.png"
+    Image.new("RGB", (8, 8), color=(255, 0, 0)).save(image_path, format="PNG")
+
+    payload = _build_image_data_url(image_path, "openai")
+
+    assert payload.startswith("data:image/jpeg;base64,")
 
 
 def test_lmstudio_query_analyzer_uses_compatible_client(monkeypatch) -> None:
@@ -126,6 +136,32 @@ def test_lmstudio_embedding_error_is_actionable(monkeypatch) -> None:
     except RuntimeError as exc:
         assert "embedding model is loaded" in str(exc)
         assert "MEMETALK_LMSTUDIO_EMBEDDING_MODEL" in str(exc)
+
+
+def test_lmstudio_image_processing_error_is_actionable(monkeypatch, tmp_path) -> None:
+    class DummyOpenAI:
+        def __init__(self, **kwargs):
+            self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+
+        def _create(self, **kwargs):
+            raise RuntimeError("Error code: 400 - {'error': 'failed to process image'}")
+
+    fake_openai = ModuleType("openai")
+    fake_openai.OpenAI = DummyOpenAI
+    monkeypatch.setitem(sys.modules, "openai", fake_openai)
+
+    image_path = tmp_path / "sample.png"
+    Image.new("RGB", (8, 8), color=(255, 0, 0)).save(image_path, format="PNG")
+
+    settings = AppSettings(provider_backend="lmstudio", lmstudio_vision_model="local-vision-model")
+    provider = CompatibleMetadataProvider(build_lmstudio_profile(settings))
+
+    try:
+        provider.analyze_image(image_path)
+        assert False, "Expected RuntimeError"
+    except RuntimeError as exc:
+        assert "LM Studio 無法處理這張圖片" in str(exc)
+        assert "MEMETALK_LMSTUDIO_VISION_MODEL" in str(exc)
 
 
 def test_query_analyzer_retries_on_malformed_json(monkeypatch) -> None:

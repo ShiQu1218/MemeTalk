@@ -137,7 +137,9 @@
 - The Claude backend MUST use the Anthropic SDK for chat, vision, query analysis, and reranking; embedding MUST be delegated to a configurable secondary provider (`openai` or `gemini`) since Anthropic does not offer an embedding API.
 - The repository MUST provide a documented local provider configuration for LM Studio without changing application code.
 - The repository MUST pin and document a known-good PaddleOCR runtime for Windows CPU environments; the validated MVP combination is `paddleocr==2.10.0` with `paddlepaddle==3.1.1`.
+- OpenAI-compatible vision requests used by indexing and query-image search MUST locally normalize supported images into sanitized JPEG or PNG data URLs before upload, including EXIF orientation correction and incompatible color-mode cleanup, instead of forwarding original file bytes unchanged.
 - OpenAI-compatible local provider failures MUST surface actionable guidance when required chat, vision, or embedding models are not available.
+- OpenAI-compatible local provider image-processing failures MUST surface actionable guidance that the active model may not actually support image input even if the configured vision model id is set.
 - PaddleOCR runtime failures caused by known Windows CPU inference incompatibilities MUST surface actionable guidance instead of only returning the raw Paddle error.
 - OpenAI-compatible structured outputs MUST retry or repair recoverable malformed JSON before failing a request.
 - OpenAI-compatible rerank structured outputs MUST accept a recoverable top-level JSON array response and normalize it into the expected `results` object shape before failing the request.
@@ -166,6 +168,7 @@
 - The bot MUST execute meme retrieval through the in-repo application services directly and MUST NOT require a separately running FastAPI server when used with the Streamlit app's Direct Mode.
 - The Telegram bot MUST keep a bounded short-term conversation history per chat in memory and pass that recent context into subsequent routing decisions.
 - The Telegram short-term conversation history MAY reset when the bot process restarts.
+- The Telegram bot MUST normalize locally loaded meme image bytes into a Telegram-compatible upload payload before calling Telegram when the original file format or mode is not reliably accepted as a photo upload.
 - When meme retrieval succeeds, the Telegram bot MUST send only the meme image without caption text and MUST suppress any additional follow-up text for that reply, even when routing decided `both`.
 - If routing fails, the bot MUST send a plain-text apology response.
 - If meme retrieval fails or returns no result, the bot MUST fall back to plain-text output.
