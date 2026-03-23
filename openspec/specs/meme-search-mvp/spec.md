@@ -140,7 +140,9 @@
 - OpenAI-compatible local provider failures MUST surface actionable guidance when required chat, vision, or embedding models are not available.
 - PaddleOCR runtime failures caused by known Windows CPU inference incompatibilities MUST surface actionable guidance instead of only returning the raw Paddle error.
 - OpenAI-compatible structured outputs MUST retry or repair recoverable malformed JSON before failing a request.
+- OpenAI-compatible rerank structured outputs MUST accept a recoverable top-level JSON array response and normalize it into the expected `results` object shape before failing the request.
 - Anthropic-backed structured outputs MUST retry or repair recoverable malformed JSON before failing a request.
+- Anthropic-backed rerank structured outputs MUST accept a recoverable top-level JSON array response and normalize it into the expected `results` object shape before failing the request.
 - The codebase MUST include a local/mock-friendly provider path so tests can run without external services.
 
 ### REQ-MVP-009 Evaluation Pipeline

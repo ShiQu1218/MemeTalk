@@ -4,9 +4,11 @@ from types import ModuleType, SimpleNamespace
 from PIL import Image
 
 from memetalk.config import AppSettings
+from memetalk.core.models import MemeMetadata, OCRStatus, QueryAnalysis, RerankCandidate, SearchMode
 from memetalk.providers.openai_provider import (
     CompatibleEmbeddingProvider,
     CompatibleQueryAnalyzer,
+    CompatibleReranker,
     _build_image_data_url,
     _extract_json_object,
     build_lmstudio_profile,
@@ -22,6 +24,25 @@ def test_extract_json_object_accepts_code_fence() -> None:
 
     assert parsed["hello"] == "world"
     assert parsed["items"] == [1, 2, 3]
+
+
+def test_extract_json_object_wraps_top_level_array_for_rerank_results() -> None:
+    payload = """排序如下：
+    [
+      {"image_id": "meme-1", "score": 0.93, "reason": "文字夠嗆很適合回覆"}
+    ]"""
+
+    parsed = _extract_json_object(payload, array_field="results")
+
+    assert parsed == {
+        "results": [
+            {
+                "image_id": "meme-1",
+                "score": 0.93,
+                "reason": "文字夠嗆很適合回覆",
+            }
+        ]
+    }
 
 
 def test_lmstudio_webp_payload_is_transcoded_to_png(tmp_path) -> None:
@@ -149,3 +170,65 @@ def test_query_analyzer_retries_on_malformed_json(monkeypatch) -> None:
 
     assert DummyOpenAI.call_count == 2
     assert result.reply_intent == "抱怨"
+
+
+def test_reranker_repairs_top_level_array_response(monkeypatch) -> None:
+    class DummyOpenAI:
+        call_count = 0
+
+        def __init__(self, **kwargs):
+            self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+
+        def _create(self, **kwargs):
+            DummyOpenAI.call_count += 1
+            content = (
+                "以下是排序結果：\n"
+                "[\n"
+                '  {"image_id": "meme-1", "score": 0.91, "reason": "台詞夠酸，回覆感很強"}\n'
+                "]"
+            )
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
+
+    fake_openai = ModuleType("openai")
+    fake_openai.OpenAI = DummyOpenAI
+    monkeypatch.setitem(sys.modules, "openai", fake_openai)
+
+    settings = AppSettings(provider_backend="lmstudio", lmstudio_chat_model="local-chat-model")
+    reranker = CompatibleReranker(build_lmstudio_profile(settings))
+    query_analysis = QueryAnalysis(
+        original_query="主管又改需求",
+        situation="主管又改需求",
+        emotions=["厭世"],
+        tone="吐槽型回覆",
+        reply_intent="抱怨",
+        query_embedding_text="適合拿來抱怨主管改需求的回覆梗圖",
+    )
+    candidates = [
+        RerankCandidate(
+            image_id="meme-1",
+            vector_score=0.75,
+            file_path="D:/Develop/MemeTalk/tests/data/meme-1.png",
+            metadata=MemeMetadata(
+                has_text=True,
+                ocr_text="又改？",
+                ocr_status=OCRStatus.SUCCESS,
+                ocr_lines=["又改？"],
+                template_name="Office Reaction",
+                scene_description="角色露出不耐煩表情",
+                meme_usage="拿來吐槽反覆變更需求",
+                emotion_tags=["厭世"],
+                intent_tags=["抱怨"],
+            ),
+            candidate_sources=["reply_text"],
+            feature_scores={"ocr_overlap": 0.8},
+            deterministic_score=0.88,
+        )
+    ]
+
+    result = reranker.rerank("主管又改需求", query_analysis, candidates, top_n=1, mode=SearchMode.REPLY)
+
+    assert DummyOpenAI.call_count == 1
+    assert len(result) == 1
+    assert result[0].image_id == "meme-1"
+    assert result[0].score == 0.91
+    assert result[0].reason == "台詞夠酸，回覆感很強"

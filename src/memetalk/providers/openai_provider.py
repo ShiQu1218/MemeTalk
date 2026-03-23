@@ -13,6 +13,7 @@ from memetalk.config import AppSettings
 from memetalk.core.models import MemeMetadata, OCRExtraction, OCRStatus, QueryAnalysis, RerankCandidate, RerankResult, SearchMode
 from memetalk.core.providers import EmbeddingProvider, MetadataProvider, QueryAnalyzer, Reranker
 from memetalk.core.retrieval import default_retrieval_weights
+from memetalk.providers.json_utils import extract_json_object as _extract_json_object
 
 JSON_COMPLETION_MAX_ATTEMPTS = 3
 
@@ -34,25 +35,6 @@ def _build_image_data_url(image_path: Path, provider_label: str) -> str:
     }.get(suffix, "image/png")
     payload = base64.b64encode(image_path.read_bytes()).decode("utf-8")
     return f"data:{mime_type};base64,{payload}"
-
-
-def _extract_json_object(payload: str) -> dict[str, Any]:
-    text = payload.strip()
-    if not text:
-        return {}
-    if text.startswith("```"):
-        lines = text.splitlines()
-        if lines:
-            lines = lines[1:]
-        if lines and lines[-1].strip() == "```":
-            lines = lines[:-1]
-        text = "\n".join(lines).strip()
-    start = text.find("{")
-    end = text.rfind("}")
-    if start == -1 or end == -1 or end < start:
-        raise ValueError("Provider response does not contain a JSON object.")
-    return json.loads(text[start : end + 1])
-
 
 @dataclass(frozen=True, slots=True)
 class CompatibleProviderProfile:
@@ -179,7 +161,13 @@ class _OpenAICompatibleBase:
             "不要使用 Markdown、不要加前言、不要加結尾說明。"
         )
 
-    def _json_completion(self, prompt: str, user_content: str | list[dict[str, Any]], model: str) -> dict[str, Any]:
+    def _json_completion(
+        self,
+        prompt: str,
+        user_content: str | list[dict[str, Any]],
+        model: str,
+        array_field: str | None = None,
+    ) -> dict[str, Any]:
         capability = "vision" if isinstance(user_content, list) else "chat"
         last_error: Exception | None = None
         for attempt in range(JSON_COMPLETION_MAX_ATTEMPTS):
@@ -199,7 +187,7 @@ class _OpenAICompatibleBase:
                 raise self._translate_provider_error(exc, capability) from exc
             payload = response.choices[0].message.content or ""
             try:
-                return _extract_json_object(payload)
+                return _extract_json_object(payload, array_field=array_field)
             except (json.JSONDecodeError, ValueError) as exc:
                 last_error = exc
                 continue
@@ -434,5 +422,6 @@ class CompatibleReranker(_OpenAICompatibleBase, Reranker):
                 ensure_ascii=False,
             ),
             self.profile.chat_model,
+            array_field="results",
         )
         return [RerankResult(**item) for item in data.get("results", [])[:top_n]]

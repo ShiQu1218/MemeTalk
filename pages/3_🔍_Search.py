@@ -130,7 +130,7 @@ if st.button("搜尋梗圖", type="primary", use_container_width=True):
                         header_col.subheader(f"#{rank} {result.template_name or '未知模板'}")
                         score_col.metric("分數", f"{result.score:.3f}")
 
-                        asset = container.repository.get_asset_by_id(result.image_id)
+                        asset = _container.repository.get_asset_by_id(result.image_id)
                         if asset:
                             try:
                                 st.image(asset.file_path, use_container_width=True)

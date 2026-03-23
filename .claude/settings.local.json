@@ -19,7 +19,8 @@
       "WebSearch",
       "Bash(ruff check:*)",
       "Bash(pip show:*)",
-      "Bash(pip list:*)"
+      "Bash(pip list:*)",
+      "Bash(test:*)"
     ]
   }
 }
